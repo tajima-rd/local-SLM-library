@@ -69,30 +69,24 @@ def load_embedding_model(name = "nomic-embed-text:latest"):
 def construct(dir_markdown, dir_vectorhouse, file_list, overwrite=False, embedding_name="nomic-embed-text:latest"):
     print("この関数のサポートを辞めました。")
     
-def vectorization(in_file, md_path, vect_path, category, overwrite=False, embedding_name="nomic-embed-text:latest"):
-    # 形式を確認して処理します
+def vectorization(md_path, vect_path, category, overwrite=False, embedding_name="nomic-embed-text:latest"):
+    """
+    Markdownファイルをもとにベクトルストアを生成する関数。
+    入力が .md 形式以外の場合は処理を中断します。
+    """
+    md_path = Path(md_path)
+    
+    # .md ファイルであることを確認
+    if md_path.suffix.lower() != ".md":
+        raise ValueError(f"入力ファイルは Markdown (.md) 形式である必要があります: {md_path}")
+
     print("※ granite-embedding:278m を選ぶと処理が落ちます…")
-    # embedding_name = select_embedding_model()
-    embedding = EmbeddingWrapper( # type: ignore
+
+    embedding = EmbeddingWrapper(  # type: ignore
         name=embedding_name,
         model=load_embedding_model(name=embedding_name)
     )
 
-    # 入力ファイルとドキュメント形式の確認
-    doc_path = Path(in_file)
-    doc_format = rag.get_document_format(doc_path)
-
-    if not doc_format:
-        print(f"サポートされていないドキュメント形式: {doc_path.suffix}")
-        exit()
-
-    # Markdown形式ならコピー、それ以外は変換
-    if doc_format == InputFormat.MD:
-        shutil.copy2(doc_path, md_path)
-    elif not os.path.exists(md_path):
-        rag.convert_document_to_markdown(doc_path, md_path)
-
-    # ベクトルストア構築
     if overwrite or not os.path.exists(vect_path):
         vectorstore = rag.save_chain(
             md_path,
@@ -106,7 +100,3 @@ def vectorization(in_file, md_path, vect_path, category, overwrite=False, embedd
     else:
         print(f"既存のベクトルストアが存在します: {vect_path}（上書きしません）")
         return None
-
-
-
-

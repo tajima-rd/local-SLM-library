@@ -9,15 +9,22 @@ from langchain_core.prompts import ChatPromptTemplate # type: ignore
 
 
 # --- ディレクトリ設定 ---
-base_dir = Path("/home/yufujimoto/Documents/Projects/生成系AI/LocalLLM/webui/modules/core/sample")
+# 現在のファイル（スクリプト）のパス
+current_path = Path(__file__).resolve()
+ 
+# 'core' ディレクトリを含む親ディレクトリを見つける
+core_root = next(p for p in current_path.parents if p.name == "core")
+
+# そこから目的のサブパスを定義
+base_dir = core_root / "sample"
 markdown_dir = base_dir / "markdown"
 vectorstore_dir = base_dir / "vectorstore"
 
 # --- 入力ファイル ---
 input_files = [
-    base_dir / "cat_tools.md",
-    base_dir / "japan_catapillar.md",
-    base_dir / "Proffesional_College_of_arts_and_tourism.md",
+    markdown_dir / "cat_tools.md",
+    markdown_dir / "japan_catapillar.md",
+    markdown_dir / "Proffesional_College_of_arts_and_tourism.md",
 ]
 
 # --- カテゴリ指定 ---
@@ -25,10 +32,15 @@ category = "test"
 
 # --- ベクトルストアの構築 ---
 for in_file in input_files:
-    basename = in_file.stem
-    md_path = markdown_dir / f"{basename}.md"
+    try:
+        md_path = rag.prepare_markdown(in_file, markdown_dir / in_file.name)  # 再利用 or 変換先
+    except ValueError as e:
+        print(f"⚠️ スキップ: {e}")
+        continue
+    basename = md_path.stem
     vect_path = vectorstore_dir / f"{basename}.faiss"
-    construct.vectorization(in_file, md_path, vect_path, category=category)
+    construct.vectorization(md_path, vect_path, category=category)
+
 
 # --- モデル定義 ---
 llm = OllamaLLM(model="granite3.2:8b")

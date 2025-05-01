@@ -164,6 +164,35 @@ def convert_document_to_markdown(doc_path, md_path):
     except:
         return f"ドキュメントの変換中にエラーが発生しました: {doc_path}"
 
+def prepare_markdown(in_file: str | Path, md_path: str | Path) -> Path:
+    """
+    入力ファイルを Markdown に変換し、md_path に保存する。
+    ただし、入力ファイルがすでに Markdown の場合はそのまま返す。
+
+    Parameters:
+        in_file: 入力ファイルのパス（PDF, Word, Markdown など）
+        md_path: Markdown 形式ファイルの出力先パス
+
+    Returns:
+        Path: 利用すべき Markdown ファイルのパス
+    """
+    doc_path = Path(in_file)
+    doc_format = get_document_format(doc_path)
+
+    if not doc_format:
+        raise ValueError(f"Unsupported document format: {doc_path.suffix}")
+
+    if doc_format == InputFormat.MD:
+        return doc_path  # 変換不要、オリジナルをそのまま返す
+
+    md_path = Path(md_path)
+
+    if not md_path.exists():
+        convert_document_to_markdown(doc_path, md_path)
+
+    return md_path
+
+
 def save_chain(
         doc_path,
         vect_path,
