@@ -1,11 +1,10 @@
 langchain==0.3.23
-langchain-core==0.1.50
-langchain-community==0.0.33
-langchain-ollama>=0.1.0
-ollama>=0.1.6
-faiss-cpu>=1.7.4
-pydantic>=2.0,<3.0
-openai  # langchain-core依存、不要なら削除可
+langchain-core==0.3.51
+langchain-community==0.3.21
+langchain-ollama>=0.3.0
+ollama>=0.4.7
+faiss-cpu>=1.10.0
+pydantic>=2.11.2,<3.0
 
 # ドキュメント処理系
 unstructured[all-docs]  # PDF/Word/PPTX/Markdown対応
@@ -20,7 +19,7 @@ requests
 pypdf
 
 # テキスト分割
-langchain-text-splitters>=0.0.1
+langchain-text-splitters>=0.3.8
 
 # 推奨（Jupyter 実験環境）
 ipython
