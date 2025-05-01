@@ -43,7 +43,7 @@ for in_file in input_files:
 
 
 # --- モデル定義 ---
-llm = OllamaLLM(model="granite3.2:8b")
+llm = OllamaLLM(model="granite3.3:8b")
 
 CUSTOM_PROMPT = ChatPromptTemplate.from_template("""
         以下の情報に基づいて、**日本語で**専門的かつ論理的に、簡潔に答えてください。
