@@ -17,20 +17,24 @@ This repository implements a modular, category-aware Retrieval-Augmented Generat
 ```
 
 .
-├── main.py                  # Main entry point to run the RAG CLI
-├── RAGSession.py           # Session manager class
-├── chain\_factory.py        # Chain builder for LangChain RAG
-├── retriever\_utils.py      # FAISS retriever manager and metadata editing
-├── process\_utils.py        # Wrapper for document conversion + vectorization
-├── vectorization.py        # Vector store generation logic
-├── document\_utils.py       # Document loaders and Markdown converters
-├── llm\_config.py           # LLM and prompt configuration
-├── embedding\_config.py     # Embedding model selection (via Ollama API)
-├── interactive\_cli.py      # CLI mode runner (RAG and LLM)
-├── prompts.py              # Prompt templates (Japanese/English)
-└── sample/
-├── markdown/           # Input Markdown files
-└── vectorstore/        # Output FAISS vectorstores
+README.md                    # This file.
+LICENSE.txt                  # MIT License.
+requirements.txt             # External libraries.
+core/                        # Core objects for RAG construction.
+ ├── main.py                 # Main entry point to run the RAG CLI
+ ├── RAGSession.py           # Session manager class
+ ├── chain_factory.py        # Chain builder for LangChain RAG
+ ├── retriever_utils.py      # FAISS retriever manager and metadata editing
+ ├── process_utils.py        # Wrapper for document conversion + vectorization
+ ├── vectorization.py        # Vector store generation logic
+ ├── document_utils.py       # Document loaders and Markdown converters
+ ├── llm_config.py           # LLM and prompt configuration
+ ├── embedding_config.py     # Embedding model selection (via Ollama API)
+ ├── interactive_cli.py      # CLI mode runner (RAG and LLM)
+ ├── prompts.py              # Prompt templates (Japanese/English)
+ └── sample/                 # Markdown texts and FAISS objects for RAG.
+    ├── markdown/            # Input Markdown files
+    └── vectorstore/         # Output FAISS vectorstores
 
 ````
 
@@ -50,6 +54,7 @@ pip install -r requirements.txt
 Install models:
 
 ```bash
+ollama pull nomic-embed-text:latest
 ollama pull bge-m3
 ollama pull gemma3:4b
 ````
@@ -102,7 +107,7 @@ You can choose from various prompt styles in `llm_config.py`:
 
 ## 📌 Notes
 
-* `granite-embedding:278m` is known to crash during vectorization. Use `nomic-embed-text:latest`.
+* `granite-embedding:278m` is known to crash during vectorization. Use `bge-m3` or `nomic-embed-text:latest`.
 * Only `.md` is natively supported. PDF/DOCX will be converted via Docling.
 
 ## 📜 License
