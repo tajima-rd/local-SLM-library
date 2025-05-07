@@ -47,6 +47,13 @@ Install dependencies:
 pip install -r requirements.txt
 ````
 
+Install models:
+
+```bash
+ollama pull bge-m3
+ollama pull gemma3:4b
+````
+
 Start Ollama backend (in another terminal):
 
 ```bash
@@ -101,5 +108,3 @@ You can choose from various prompt styles in `llm_config.py`:
 ## 📜 License
 
 MIT License (c) 2025 Yu Fujimoto
-
-```

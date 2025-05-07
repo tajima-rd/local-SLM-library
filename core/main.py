@@ -13,7 +13,7 @@ from retriever_utils import HierarchicalRetrieverCategory
 current_path = Path(__file__).resolve()
  
 # 'core' ディレクトリを含む親ディレクトリを見つける
-core_root = next(p for p in current_path.parents if p.name == "core2")
+core_root = next(p for p in current_path.parents if p.name == "core")
 
 # そこから目的のサブパスを定義
 base_dir = core_root / "sample"
