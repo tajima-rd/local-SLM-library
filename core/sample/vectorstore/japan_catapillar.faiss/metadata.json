@@ -1,1 +1,1 @@
-{"embedding_model": "nomic-embed-text:latest", "loader_type": "markdown", "text_splitter_type": "recursive", "category": "test"}
+{"embedding_model": "bge-m3", "loader_type": "markdown", "text_splitter_type": "recursive", "category": {"level": 1, "tagname": "\u571f\u6728"}}
