@@ -1,130 +1,105 @@
-# local-SLM-library
+# 🧠 Hierarchical RAG System with LangChain × Ollama
 
-ローカル環境で RAG（Retrieval-Augmented Generation）を実装・検証するための Python プロジェクトです。LangChain + Ollama を基盤とし、カテゴリベースのベクトルストア管理と柔軟なプロンプト設計が特徴です。
+This repository implements a modular, category-aware Retrieval-Augmented Generation (RAG) system built with [LangChain](https://www.langchain.com/) and [Ollama](https://ollama.com/). It supports hierarchical metadata tagging, vector store merging, and dynamic prompt switching for Japanese and English use cases.
 
-## 📦 主な機能
+## 🚀 Features
 
-- Markdown / PDF / Word / PPTX ファイルをベクトル化し、カテゴリ別に管理
-- 複数のベクトルストアをマージして統合検索
-- LangChain 0.3 系に対応した Conversational Retrieval QA 構築
-- 日本語・多言語対応（Granite 3.2:8b で確認済み）
-- PromptTemplate による柔軟な対話設計
-- docling による高度な文書変換パイプライン（Markdown 変換）
+- 📁 Category-based vector store construction using Markdown files
+- 🧠 Conversational RAG chains with chat history context
+- 🏷️ Metadata-aware document retrieval via FAISS
+- 🧩 Modular chain factory for various RAG strategies (`stuff`, `map_reduce`, etc.)
+- 🧪 CLI for experimentation (`rag` or `llm` mode)
+- 📎 Document support: Markdown (fully), DOCX/PDF via Docling
+- 📐 Dynamic chunking via document structure analysis
 
-## 🧰 使用技術
-
-- Python 3.11+
-- [LangChain](https://python.langchain.com/)
-- [Ollama](https://ollama.com/)
-- [FAISS](https://github.com/facebookresearch/faiss)
-- [docling](https://github.com/docling-ai/docling)
-- Unstructured / PyMuPDF など
-
-## 📁 ディレクトリ構成
+## 📂 Project Structure
 
 ```
-modules/core/
-├── main.py            # 実行スクリプト
-├── chain.py           # チェーン構築とプロンプト設計
-├── rag.py             # ベクトルストア処理と統合
-├── construct.py       # 埋め込み生成とMarkdown変換
-├── prompts.py         # プロンプトテンプレート定義
-└── sample/            # サンプルデータ（Markdown・ベクトルストア）
-```
 
-## 🚀 セットアップ手順
+.
+├── main.py                  # Main entry point to run the RAG CLI
+├── RAGSession.py           # Session manager class
+├── chain\_factory.py        # Chain builder for LangChain RAG
+├── retriever\_utils.py      # FAISS retriever manager and metadata editing
+├── process\_utils.py        # Wrapper for document conversion + vectorization
+├── vectorization.py        # Vector store generation logic
+├── document\_utils.py       # Document loaders and Markdown converters
+├── llm\_config.py           # LLM and prompt configuration
+├── embedding\_config.py     # Embedding model selection (via Ollama API)
+├── interactive\_cli.py      # CLI mode runner (RAG and LLM)
+├── prompts.py              # Prompt templates (Japanese/English)
+└── sample/
+├── markdown/           # Input Markdown files
+└── vectorstore/        # Output FAISS vectorstores
 
-### 1. 依存ライブラリのインストール
+````
+
+## 🔧 Requirements
+
+- Python 3.10+
+- [Ollama](https://ollama.com/) running locally (`ollama serve`)
+- LangChain and community extensions
+- Docling (for document conversion)
+
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
-```
+````
 
-または、必要に応じて以下を手動でインストール：
-
-```bash
-pip install langchain langchain-community langchain-ollama pydantic faiss-cpu unstructured
-```
-
-### 2. Ollama モデルの取得（例）
+Start Ollama backend (in another terminal):
 
 ```bash
-ollama pull granite3.2:8b
 ollama serve
 ```
 
-### 3. 実行
+## ▶️ Usage
+
+Run in interactive RAG mode:
 
 ```bash
-python modules/core/main.py
+python main.py
 ```
 
-## 📚 使用方法の概要
+When prompted:
 
-### 1. ベクトルストアの構築（construct.vectorization）
+* Type a question (in Japanese or English depending on prompt)
+* Type `exit` to quit the session
 
-```python
-vectorization(
-    in_file="path/to/file.pdf",
-    md_path="path/to/output.md",
-    vect_path="path/to/vectorstore",
-    category="example"
-)
+## 🏷️ Metadata Structure
+
+Each `.faiss` vector store is accompanied by a `metadata.json`:
+
+```json
+{
+  "embedding_model": "nomic-embed-text:latest",
+  "loader_type": "markdown",
+  "text_splitter_type": "recursive",
+  "category": {
+    "tagname": "大学",
+    "level": 1
+  }
+}
 ```
 
-### 2. QAチェーンの準備（カテゴリベース）
+This metadata is used for selecting relevant documents by `tagname` and `level`.
 
-```python
-qa_chain = prepare_chain_for_category(
-    llm=my_llm,
-    category="example",
-    base_path=Path("path/to/vectorhouse"),
-    chain_type="conversational",
-    prompt_template=CUSTOM_PROMPT
-)
+## 📚 Prompt Options
+
+You can choose from various prompt styles in `llm_config.py`:
+
+* `japanese_concise` – 論理的かつ簡潔な日本語応答
+* `default` – 簡易日本語
+* `english_verbose` – Detailed English response
+* `rephrase` – Search query rephrasing
+
+## 📌 Notes
+
+* `granite-embedding:278m` is known to crash during vectorization. Use `nomic-embed-text:latest`.
+* Only `.md` is natively supported. PDF/DOCX will be converted via Docling.
+
+## 📜 License
+
+MIT License (c) 2025 Yu Fujimoto
+
 ```
-
-### 3. 対話実行
-
-```python
-response = qa_chain.invoke({
-    "input": "質問内容",
-    "chat_history": []
-})
-```
-
-## 🧠 カスタムプロンプト例
-
-```python
-from langchain.prompts import ChatPromptTemplate
-
-CUSTOM_PROMPT = ChatPromptTemplate.from_template("""
-以下の文脈に基づいて、正確かつ論理的な日本語で回答してください。
-
-文脈:
-{context}
-
-質問:
-{input}
-""")
-```
-
-## ⚠️ 注意点
-
-- Granite Embedding 278m モデルは一部環境でクラッシュの報告があります（`nomic-embed-text:latest` を推奨）
-- LangChain のバージョンは `0.3.x` に固定してあります（以降の互換性は未検証）
-- Pydantic v2 系に対応
-
-## 📝 ライセンス
-
-MIT License
-
-## 📬 開発者
-
-Yu Fujimoto｜Tajima R&D
-GitHub: [@tajima-rd](https://github.com/tajima-rd)
-```
-
----
-
-ご希望に応じて、英語版や図付きの README も用意可能です。必要ですか？
