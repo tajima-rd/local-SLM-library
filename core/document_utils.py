@@ -7,7 +7,6 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter  # type: ignore
 from langchain_community.document_loaders import (  # type: ignore
     UnstructuredMarkdownLoader,
     UnstructuredPDFLoader,
@@ -17,12 +16,87 @@ from langchain_community.document_loaders import (  # type: ignore
 
 from docling.datamodel.base_models import InputFormat  # type: ignore
 from docling.datamodel.pipeline_options import PdfPipelineOptions  # type: ignore
-from docling.document_converter import (
+from docling.document_converter import ( # type: ignore
     DocumentConverter,
     PdfFormatOption,
     WordFormatOption,
     SimplePipeline
-)  # type: ignore
+)
+
+class BaseSplitterStrategy:
+    def get_splitter(self, documents: list) -> object:
+        raise NotImplementedError("You must implement get_splitter.")
+
+class MarkdownSplitterStrategy(BaseSplitterStrategy):
+    def get_splitter(self, documents):
+        # ドキュメントの先頭数件からテキストを取得（見出しの検出用サンプル）
+        text_sample = "\n".join(doc.page_content for doc in documents[:5])
+
+        header_levels = set()  # 見出しレベル（#の数）を格納する集合
+
+        # テキストを行ごとに確認し、Markdown形式の見出し（#〜######）を検出
+        for line in text_sample.splitlines():
+            if line.startswith("#"):
+                count = len(line) - len(line.lstrip("#"))  # 先頭の#の個数をカウント
+                if 1 <= count <= 6:
+                    header_levels.add(count)
+
+        # 検出されたレベルを昇順に整列し、LangChain用の形式に変換
+        headers = [(f"{'#' * level}", f"header{level}") for level in sorted(header_levels)]
+
+        # 見出しが1つも検出できなかった場合のフォールバック（##レベルのみ）
+        if not headers:
+            headers = [("##", "header2")]
+
+        # 検出された見出しレベルに基づいて MarkdownHeaderTextSplitter を構築して返す
+        from langchain.text_splitter import MarkdownHeaderTextSplitter
+        return MarkdownHeaderTextSplitter(headers_to_split_on=headers)
+
+class PlainTextSplitterStrategy(BaseSplitterStrategy):
+    def get_splitter(self, documents):
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+        # --- サンプルテキストを生成（先頭5文書の内容を結合） ---
+        sample_text = "\n".join(doc.page_content for doc in documents[:5])
+
+        # --- 段落の平均文字数を分析 ---
+        def analyze_avg_paragraph_length(text: str):
+            paragraphs = text.split("\n\n")  # 空行2つで段落を仮定
+            if not paragraphs:
+                return 500  # 段落なしの場合のデフォルト値
+            total_length = sum(len(p) for p in paragraphs)
+            return total_length / len(paragraphs)
+
+        avg_len = analyze_avg_paragraph_length(sample_text)
+
+        # --- 平均長に応じてチャンクサイズとオーバーラップを決定 ---
+        if avg_len > 1500:
+            chunk_size = 2000
+            chunk_overlap = 400
+        elif avg_len > 800:
+            chunk_size = 1600
+            chunk_overlap = 300
+        else:
+            chunk_size = 1000
+            chunk_overlap = 200
+
+        # --- RecursiveCharacterTextSplitter を構築して返す ---
+        return RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            length_function=len  # デフォルトでは len() が文字数ベース
+        )
+
+class XMLSplitterStrategy(BaseSplitterStrategy):
+    def get_splitter(self, documents):
+        raise NotImplementedError("XML対応は今後実装予定です。")
+
+SPLITTER_STRATEGY_MAP = {
+    "markdown": MarkdownSplitterStrategy(), # type: ignore
+    "text": PlainTextSplitterStrategy(), # type: ignore
+    # "pdf": PlainTextSplitterStrategy(),
+    # "xml": XMLSplitterStrategy(),
+}
 
 def get_document_format(file_path: Path) -> InputFormat | None:
     """
@@ -109,56 +183,22 @@ def convert_document_to_markdown(doc_path: Path, md_path: str) -> str | None:
         print(f"ドキュメントの変換中にエラーが発生しました: {e}")
         return None
 
-def suggest_text_splitter(
-    doc_path: str,
-    documents,
-    text_splitter_type: str = "recursive",
-    loader_type: str = "markdown"
-):
+def suggest_text_splitter(documents, loader_type: str = "markdown"):
     """
-    ドキュメントの構造に基づき適切な chunk_size / overlap を推定して TextSplitter を返す。
-
-    Parameters:
-    - doc_path: ファイルパス（主にロギング用）
-    - documents: LangChain の Document オブジェクトのリスト
-    - text_splitter_type: "recursive" / "character" / "token" など
-    - loader_type: "markdown" 指定時は header-based splitter も考慮
-
-    Returns:
-    - LangChain TextSplitter インスタンス
+    与えられた文書とローダー種別に応じて、適切なTextSplitterオブジェクトを返す。
+    拡張可能な戦略パターンに基づいて分岐処理を行う。
     """
 
-    def analyze_document_structure(text: str):
-        paragraphs = text.split("\n\n")
-        if not paragraphs:
-            return 500
-        return sum(len(p) for p in paragraphs) / len(paragraphs)
+    # 小文字に正規化（例：Markdown → markdown）
+    if not isinstance(loader_type, str):
+        raise TypeError(f"loader_type must be str, got {type(loader_type).__name__}")
+    loader_type = loader_type.lower()
 
-    def suggest_chunk_parameters(text: str, max_context_length=8192):
-        avg_len = analyze_document_structure(text)
-        if avg_len > 1500:
-            chunk_size = min(int(avg_len * 1.2), max_context_length // 2)
-            chunk_overlap = int(chunk_size * 0.2)
-        elif avg_len > 800:
-            chunk_size = 1600
-            chunk_overlap = 300
-        else:
-            chunk_size = 1000
-            chunk_overlap = 200
-        return chunk_size, chunk_overlap
+    # 適切な戦略を取得（無ければPlainText）
+    strategy = SPLITTER_STRATEGY_MAP.get(loader_type, PlainTextSplitterStrategy())
 
-    sample_text = "\n".join(doc.page_content for doc in documents[:5])
-    chunk_size, chunk_overlap = suggest_chunk_parameters(sample_text)
-    text_splitter_type = text_splitter_type.lower()
-
-    if text_splitter_type == "recursive":
-        return RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            length_function=len
-        )
-    else:
-        raise ValueError(f"Unsupported or unimplemented text_splitter_type: {text_splitter_type}")
+    # 戦略に基づいてTextSplitterを生成
+    return strategy.get_splitter(documents)
 
 def load_documents(doc_path: str, loader_type: str = "markdown"):
     """

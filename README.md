@@ -30,7 +30,6 @@ core/                        # Core objects for RAG construction.
  ├── document_utils.py       # Document loaders and Markdown converters
  ├── llm_config.py           # LLM and prompt configuration
  ├── embedding_config.py     # Embedding model selection (via Ollama API)
- ├── interactive_cli.py      # CLI mode runner (RAG and LLM)
  ├── prompts.py              # Prompt templates (Japanese/English)
  └── sample/                 # Markdown texts and FAISS objects for RAG.
     ├── markdown/            # Input Markdown files

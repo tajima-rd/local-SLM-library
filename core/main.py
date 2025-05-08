@@ -21,11 +21,11 @@ markdown_dir = base_dir / "markdown"
 vectorstore_dir = base_dir / "vectorstore"
 
 # --- 入力ファイル ---
-file_category_pairs = [
-    (markdown_dir / "cat_tools.md", HierarchicalRetrieverCategory(tagname="情報", level=1)),
-    (markdown_dir / "japan_catapillar.md", HierarchicalRetrieverCategory(tagname="土木", level=1)),
-    (markdown_dir / "Proffesional_College_of_arts_and_tourism.md", HierarchicalRetrieverCategory(tagname="大学", level=1)),
-    (markdown_dir / "students.md", HierarchicalRetrieverCategory(tagname="学生", level=2)),
+entries = [
+    RAGSession.VectorStoreEntry(markdown_dir / "cat_tools.md", HierarchicalRetrieverCategory(tagname="情報", level=1)),
+    RAGSession.VectorStoreEntry(markdown_dir / "japan_catapillar.md", HierarchicalRetrieverCategory(tagname="土木", level=1)),
+    RAGSession.VectorStoreEntry(markdown_dir / "Proffesional_College_of_arts_and_tourism.md", HierarchicalRetrieverCategory(tagname="大学", level=1)),
+    RAGSession.VectorStoreEntry(markdown_dir / "students.md", HierarchicalRetrieverCategory(tagname="学生", level=2)),
 ]
 
 # セッション作成
@@ -36,7 +36,7 @@ session = RAGSession(
     embedding_name="bge-m3"
 )
 
-session.build_vectorstore(file_category_pairs, markdown_dir, overwrite=False)
+session.build_vectorstore(entries, markdown_dir=markdown_dir, overwrite=False)
 session.prepare_chain(tagname="土木", level=1)
 session.run_interactive(mode="rag")  # ← 従来通り
 # session.run_interactive(mode="llm")  # ← RAGを使わず直接生成

@@ -1,14 +1,20 @@
-import chain_factory
-
-from retriever_utils import RetrieverCategory, HierarchicalRetrieverCategory
-
 from pathlib import Path
 from langchain_core.language_models import BaseLanguageModel # type: ignore
-from process_utils import process_and_vectorize_file # type: ignore
-from interactive_cli import run_rag_cli, run_llm_cli # type: ignore
-from llm_config import load_llm, load_prompt # type: ignore
+
+import chain_factory
+import llm_config
+import retriever_utils
+import process_utils
 
 class RAGSession:
+    class VectorStoreEntry:
+        def __init__(self, file_path_str: str, category: retriever_utils.RetrieverCategory):
+            self.file_path = Path(file_path_str)
+            self.category = category
+
+        def __repr__(self):
+            return f"VectorStoreEntry(path={self.file_path}, category={self.category})"
+        
     def __init__(
         self,
         vectorstore_dir: Path,
@@ -17,29 +23,35 @@ class RAGSession:
         embedding_name: str = "bge-m3"
     ):
         self.model_name = model_name
-        self.prompt_template = load_prompt(default_template)
+        self.prompt_template = llm_config.load_prompt(default_template)
         self.vectorstore_dir = vectorstore_dir
         self.embedding_name = embedding_name
-        self.llm: BaseLanguageModel = load_llm(model_name)
+        self.llm: BaseLanguageModel = llm_config.load_llm(model_name)
         self.qa_chain = None
 
     def build_vectorstore(
-            self, 
-            file_category_pairs: list[tuple[Path, RetrieverCategory]], 
+            self,
+            entries: list[VectorStoreEntry],
             markdown_dir: Path,
             overwrite: bool):
-        for in_file, category in file_category_pairs:
-            process_and_vectorize_file(
-                in_file=in_file,
+        """
+        各 VectorStoreEntry に基づいて、ベクトルストアを構築する。
+        :param entries: VectorStoreEntryのリスト（file_path と category を保持）
+        :param markdown_dir: Markdown変換後の格納ディレクトリ
+        :param overwrite: 既存のベクトルストアを上書きするかどうか
+        """
+        for entry in entries:
+            process_utils.process_and_vectorize_file(
+                in_file=entry.file_path,
                 markdown_dir=markdown_dir,
                 vectorstore_dir=self.vectorstore_dir,
-                category=category,
+                category=entry.category,
                 embedding_name=self.embedding_name,
                 overwrite=overwrite
             )
 
     def prepare_chain(self, tagname: str, level=int, k: int = 5):
-        category = HierarchicalRetrieverCategory(tagname=tagname, level=level)
+        category = retriever_utils.HierarchicalRetrieverCategory(tagname=tagname, level=level)
 
         self.qa_chain = chain_factory.prepare_chain_for_category(
             llm=self.llm,
@@ -63,12 +75,43 @@ class RAGSession:
         if mode == "rag":
             if not self.qa_chain:
                 raise RuntimeError("RAGチェーンが構築されていません。prepare_chain() を呼び出してください。")
-            run_rag_cli(self.qa_chain)
+            
+            print("🔁 RAG 実験モード開始（終了するには 'exit'）")
+            while True:
+                query = input("\n🗨 質問してください: ")
+                if query.strip().lower() == "exit":
+                    break
+
+                response = self.qa_chain.invoke({
+                    "input": query,
+                    "chat_history": []
+                })
+
+                print("\n📄 参照元:")
+                for doc in response.get("source_documents", []):
+                    print("  -", doc.metadata.get("source"))
+
+                print("\n🧠 回答:")
+                print(response.get("answer") or response.get("output"))
 
         elif mode == "llm":
             if not self.llm or not self.prompt_template:
                 raise RuntimeError("LLMまたはプロンプトテンプレートが未設定です。")
-            run_llm_cli(self.llm, self.prompt_template)
+            
+            print("💬 LLM 単体モード開始（終了するには 'exit'）")
+            while True:
+                query = input("\n🗨 質問してください: ")
+                if query.strip().lower() == "exit":
+                    break
+
+                prompt = prompt_template.format_messages(
+                    input=query,
+                    context="（文脈なし）"
+                )
+                response = llm.invoke(prompt)
+
+                print("\n🧠 回答:")
+                print(response)
 
         else:
             raise ValueError(f"未知のモードです: {mode}（'rag' または 'llm' を指定してください）")

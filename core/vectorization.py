@@ -70,18 +70,17 @@ def save_chain(
     embeddings: OllamaEmbeddings,
     category: RetrieverCategory,
     loader_type: str = "markdown",
-    text_splitter_type: str = "recursive"
 ):
     
     documents = docutils.load_documents(md_path, loader_type)
+    
     print("テキストを分割してチャンクを割り当てます。")
     splitter = docutils.suggest_text_splitter(
-        doc_path=md_path,
         documents=documents,
-        text_splitter_type=text_splitter_type,
         loader_type=loader_type
     )
     split_docs = splitter.split_documents(documents)
+
 
     for doc in split_docs:
         doc.metadata["doc_id"] = str(uuid4())
@@ -98,7 +97,6 @@ def save_chain(
     metadata = {
         "embedding_model": embeddings.model,
         "loader_type": loader_type,
-        "text_splitter_type": text_splitter_type,
         "category": category.to_dict(),
     }
     with open(os.path.join(vect_path, "metadata.json"), "w", encoding="utf-8") as f:
