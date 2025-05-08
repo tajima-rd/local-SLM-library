@@ -37,6 +37,7 @@ session = RAGSession(
 )
 
 session.build_vectorstore(entries, markdown_dir=markdown_dir, overwrite=False)
-session.prepare_chain(tagname="土木", level=1)
-session.run_interactive(mode="rag")  # ← 従来通り
+category = HierarchicalRetrieverCategory(tagname="土木", level=1)
+session.prepare_chain(category=category)
+session.run_interactive(mode="rag")    # ← 従来通り
 # session.run_interactive(mode="llm")  # ← RAGを使わず直接生成

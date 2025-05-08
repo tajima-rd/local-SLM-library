@@ -1,5 +1,3 @@
-# retriever_utils.py
-
 import os
 import json
 from uuid import uuid4
@@ -25,6 +23,17 @@ class HierarchicalRetrieverCategory(RetrieverCategory):
 
     def to_dict(self) -> dict:
         return {"level": self.level, "tagname": self.tagname}
+
+@dataclass
+class FlatRetrieverCategory(RetrieverCategory):
+    """
+    フラット（階層なし）な分類カテゴリ。
+    例: {"tagname": "観光"}, {"tagname": "食文化"}
+    """
+    tagname: str
+
+    def to_dict(self) -> dict:
+        return {"tagname": self.tagname}
 
 def create_retriever(vectorstore, k: int = 5, score_threshold: float = None):
     """

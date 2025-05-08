@@ -1,5 +1,3 @@
-# vectorization.py
-
 import os, json, shutil
 from uuid import uuid4
 from pathlib import Path
@@ -73,7 +71,7 @@ def save_chain(
 ):
     
     documents = docutils.load_documents(md_path, loader_type)
-    
+
     print("テキストを分割してチャンクを割り当てます。")
     splitter = docutils.suggest_text_splitter(
         documents=documents,

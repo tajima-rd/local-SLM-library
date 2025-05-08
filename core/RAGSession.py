@@ -50,17 +50,38 @@ class RAGSession:
                 overwrite=overwrite
             )
 
-    def prepare_chain(self, tagname: str, level=int, k: int = 5):
-        category = retriever_utils.HierarchicalRetrieverCategory(tagname=tagname, level=level)
+    def prepare_chain(
+        self,
+        category: retriever_utils.RetrieverCategory,
+        k: int = 5
+    ):
+        """
+        RetrieverCategory の種類に応じて、適切なチェーンを構築する。
+        """
 
-        self.qa_chain = chain_factory.prepare_chain_for_category(
-            llm=self.llm,
-            category=category,
-            base_path=self.vectorstore_dir,
-            chain_type="conversational",
-            prompt_template=self.prompt_template,
-            k=k,
-        )
+        if isinstance(category, retriever_utils.HierarchicalRetrieverCategory):
+            # 階層型カテゴリに対する処理
+            self.qa_chain = chain_factory.prepare_chain_for_category(
+                llm=self.llm,
+                category=category,
+                base_path=self.vectorstore_dir,
+                chain_type="conversational",
+                prompt_template=self.prompt_template,
+                k=k,
+            )
+
+        elif isinstance(category, retriever_utils.FlatRetrieverCategory):
+            # フラット型カテゴリに対する処理（例）
+            self.qa_chain = chain_factory.prepare_flat_chain(
+                llm=self.llm,
+                category=category,
+                base_path=self.vectorstore_dir,
+                prompt_template=self.prompt_template,
+                k=k,
+            )
+
+        else:
+            raise TypeError(f"Unsupported category type: {type(category).__name__}")
 
     def run_interactive(self, mode: str = "rag"):
         """
