@@ -6,6 +6,9 @@ import llm_config
 import retriever_utils
 import process_utils
 
+import json
+
+
 class RAGSession:
     class VectorStoreEntry:
         def __init__(self, file_path_str: str, category: retriever_utils.RetrieverCategory):
@@ -125,11 +128,11 @@ class RAGSession:
                 if query.strip().lower() == "exit":
                     break
 
-                prompt = prompt_template.format_messages(
+                prompt = self.prompt_template.format_messages(
                     input=query,
                     context="（文脈なし）"
                 )
-                response = llm.invoke(prompt)
+                response = self.llm.invoke(prompt)
 
                 print("\n🧠 回答:")
                 print(response)

@@ -23,6 +23,40 @@ from docling.document_converter import ( # type: ignore
     SimplePipeline
 )
 
+FORMAT_MAP = {
+    '.docx': InputFormat.DOCX,
+    '.pptx': InputFormat.PPTX,
+    '.html': InputFormat.HTML,
+    '.jpg': InputFormat.IMAGE,
+    '.jpeg': InputFormat.IMAGE,
+    '.png': InputFormat.IMAGE,
+    '.txt': InputFormat.ASCIIDOC,
+    '.pdf': InputFormat.PDF,
+    '.md': InputFormat.MD,
+    '.csv': InputFormat.CSV,
+    '.xlsx': InputFormat.XLSX,
+    # 将来的な拡張に備えたプレースホルダ
+    # '.xml_uspto': InputFormat.XML_USPTO,
+    # '.json_docling': InputFormat.JSON_DOCLING,
+}
+
+DOCUMENT_TYPE= {
+    '.docx': "microsoft word",
+    '.pptx': "microsoft powerpoint",
+    '.html': "html",
+    '.jpg': "image",
+    '.jpeg': "image",
+    '.png': "image",
+    '.txt': "plane text",
+    '.pdf': "pdf",
+    '.md': "markdown",
+    '.csv': "csv",
+    '.xlsx': "microsoft excel",
+    # 将来的な拡張に備えたプレースホルダ
+    # '.xml_uspto': InputFormat.XML_USPTO,
+    # '.json_docling': InputFormat.JSON_DOCLING,
+}
+
 class BaseSplitterStrategy:
     def get_splitter(self, documents: list) -> object:
         raise NotImplementedError("You must implement get_splitter.")
@@ -54,7 +88,7 @@ class MarkdownSplitterStrategy(BaseSplitterStrategy):
 
 class PlainTextSplitterStrategy(BaseSplitterStrategy):
     def get_splitter(self, documents):
-        from langchain.text_splitter import RecursiveCharacterTextSplitter
+        from langchain.text_splitter import RecursiveCharacterTextSplitter # type: ignore
 
         # --- サンプルテキストを生成（先頭5文書の内容を結合） ---
         sample_text = "\n".join(doc.page_content for doc in documents[:5])
@@ -108,25 +142,14 @@ def get_document_format(file_path: Path) -> InputFormat | None:
     Returns:
     - InputFormat または None（未対応形式）
     """
-    extension = file_path.suffix.lower()
-    format_map = {
-        '.docx': InputFormat.DOCX,
-        '.pptx': InputFormat.PPTX,
-        '.html': InputFormat.HTML,
-        '.jpg': InputFormat.IMAGE,
-        '.jpeg': InputFormat.IMAGE,
-        '.png': InputFormat.IMAGE,
-        '.txt': InputFormat.ASCIIDOC,
-        '.pdf': InputFormat.PDF,
-        '.md': InputFormat.MD,
-        '.csv': InputFormat.CSV,
-        '.xlsx': InputFormat.XLSX,
-        # 将来的な拡張に備えたプレースホルダ
-        # '.xml_uspto': InputFormat.XML_USPTO,
-        # '.json_docling': InputFormat.JSON_DOCLING,
-    }
+    extension = Path(file_path).suffix.lower()
 
-    return format_map.get(extension, None)
+    return FORMAT_MAP.get(extension, None)
+
+def get_document_type(file_path: Path) -> str | None:
+    extension = Path(file_path).suffix.lower()
+
+    return DOCUMENT_TYPE.get(extension, None)
 
 def convert_document_to_markdown(doc_path: Path, md_path: str) -> str | None:
     """

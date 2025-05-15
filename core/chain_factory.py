@@ -6,11 +6,8 @@ import retriever_utils
 from pathlib import Path
 from typing import Optional
 
-from retriever_utils import HierarchicalRetrieverCategory
-
 # LangChain core modules
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate # type: ignore
-from langchain_core.runnables import RunnableSequence # type: ignore
 
 # LangChain chains
 from langchain.chains import ( # type: ignore

@@ -18,11 +18,29 @@ class RetrieverCategory:
 
 @dataclass
 class HierarchicalRetrieverCategory(RetrieverCategory):
+    """
+    階層構造を持つRAGカテゴリ。
+    - tagname: このカテゴリの名前（ユニーク）
+    - parent_tag: 親カテゴリの名前（rootを既定値とする）
+    """
     tagname: str
-    level: int = -1  # -1: 未分類, 0: root, 1: domain, ...
+    parent_tag: str = "root"
 
     def to_dict(self) -> dict:
-        return {"level": self.level, "tagname": self.tagname}
+        return {
+            "tagname": self.tagname,
+            "parent_tag": self.parent_tag
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HierarchicalRetrieverCategory":
+        return cls(
+            tagname=data["tagname"],
+            parent_tag=data.get("parent_tag", "root")
+        )
+
+    def __str__(self) -> str:
+        return f"{self.parent_tag} → {self.tagname}"
 
 @dataclass
 class FlatRetrieverCategory(RetrieverCategory):
