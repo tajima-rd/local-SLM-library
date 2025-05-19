@@ -1,12 +1,13 @@
-import sqlite3
-from dataclasses import dataclass, asdict
+import sqlite3, os
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, List, Any, Tuple
 from abc import ABC, abstractmethod
-from pathlib import Path
+from dataclasses import dataclass, asdict, field
 
 import document_utils
 import retriever_utils
+from rag_session import RAGSession # type: ignore
 
 # === 抽象クラス定義 ===
 
@@ -36,86 +37,12 @@ class DBObject(ABC):
         pass
 
 # === データモデル定義 ===
-
-@dataclass(init=False)
-class Project(DBObject):
-    id: Optional[int] = None
-    name: str = ""
-    description: Optional[str] = None
-    author: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    status: str = "active"
-    default_prompt: str = "japanese_concise"
-    default_embedding: str = "nomic-embed-text:latest"
-    notes: Optional[str] = None
-
-    def __init__(
-        self,
-        name: str,
-        description: Optional[str] = None,
-        author: Optional[str] = None,
-        status: str = "active",
-        default_prompt: str = "japanese_concise",
-        default_embedding: str = "nomic-embed-text:latest",
-        notes: Optional[str] = None,
-        dbcon: Optional[sqlite3.Connection] = None,
-        insert: bool = True,
-    ):
-        self.id = None
-        self.name =name
-        self.description = description
-        self.author = author
-        self.status = status
-        self.default_prompt = default_prompt
-        self.default_embedding = default_embedding
-        self.notes = notes
-        self.created_at = None
-        self.updated_at = None
-
-        if insert:
-            if dbcon is None:
-                raise ValueError("insert=True の場合、dbcon を指定する必要があります。")
-            self.insert(dbcon)
-
-    @classmethod
-    def table_name(cls) -> str:
-        return "projects"
-
-    @classmethod
-    def from_row(cls, row: Tuple[Any]) -> 'Project':
-        return cls(*row)
-
-    def insert(self, conn: sqlite3.Connection) -> int:
-        cur = conn.cursor()
-        cur.execute('''
-            INSERT INTO projects (name, description, author, created_at, updated_at, status, default_prompt, default_embedding, notes)
-            VALUES (?, ?, ?, datetime('now'), datetime('now'), ?, ?, ?, ?)
-        ''', (self.name, self.description, self.author, self.status, self.default_prompt, self.default_embedding, self.notes))
-        conn.commit()
-        self.id = cur.lastrowid
-        return self.id
-
-    def update(self, conn: sqlite3.Connection):
-        cur = conn.cursor()
-        cur.execute('''
-            UPDATE projects SET name=?, description=?, author=?, updated_at=datetime('now'),
-            status=?, default_prompt=?, default_embedding=?, notes=? WHERE id=?
-        ''', (self.name, self.description, self.author, self.status,
-              self.default_prompt, self.default_embedding, self.notes, self.id))
-        conn.commit()
-
-    def delete(self, conn: sqlite3.Connection):
-        cur = conn.cursor()
-        cur.execute('DELETE FROM projects WHERE id=?', (self.id,))
-        conn.commit()
-
 @dataclass(init=False)
 class Category(DBObject):
     id: Optional[int] = None
     name: str = ""
     description: Optional[str] = None
-    parent_tag: str = "root"
+    parent_id: str = None
     type_code: str = "hier"
     sort_order: int = 0
     created_at: Optional[str] = None
@@ -125,7 +52,7 @@ class Category(DBObject):
         self,
         name: str,
         description: Optional[str] = None,
-        parent_tag: str = "root",
+        parent_id: str = None,
         type_code: str = "hier",
         sort_order: int = 0,
         dbcon: Optional[sqlite3.Connection] = None,
@@ -134,7 +61,7 @@ class Category(DBObject):
         self.id = None
         self.name = name
         self.description = description
-        self.parent_tag = parent_tag
+        self.parent_id = parent_id
         self.type_code = type_code
         self.sort_order = sort_order
         self.created_at = None
@@ -152,13 +79,24 @@ class Category(DBObject):
     @classmethod
     def from_row(cls, row: Tuple[Any]) -> 'Category':
         return cls(*row)
+    
+    @classmethod
+    def get_all_categories(cls, conn: sqlite3.Connection) -> list[dict]:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, name, description, parent_id, type_code, sort_order, created_at, updated_at
+            FROM categories
+        """)
+        rows = cur.fetchall()
+        keys = [col[0] for col in cur.description]
+        return [dict(zip(keys, row)) for row in rows]
 
     def insert(self, conn: sqlite3.Connection) -> int:
         cur = conn.cursor()
         cur.execute('''
-            INSERT INTO categories (name, description, parent_tag, type_code, sort_order, created_at, updated_at)
+            INSERT INTO categories (name, description, parent_id, type_code, sort_order, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-        ''', (self.name, self.description, self.parent_tag, self.type_code, self.sort_order))
+        ''', (self.name, self.description, self.parent_id, self.type_code, self.sort_order))
         conn.commit()
         self.id = cur.lastrowid
         return self.id
@@ -166,15 +104,42 @@ class Category(DBObject):
     def update(self, conn: sqlite3.Connection):
         cur = conn.cursor()
         cur.execute('''
-            UPDATE categories SET name=?, description=?, parent_tag=?, type_code=?, sort_order=?, updated_at=datetime('now')
+            UPDATE categories SET name=?, description=?, parent_id=?, type_code=?, sort_order=?, updated_at=datetime('now')
             WHERE id=?
-        ''', (self.name, self.description, self.parent_tag, self.type_code, self.sort_order, self.id))
+        ''', (self.name, self.description, self.parent_id, self.type_code, self.sort_order, self.id))
         conn.commit()
 
     def delete(self, conn: sqlite3.Connection):
         cur = conn.cursor()
         cur.execute('DELETE FROM categories WHERE id=?', (self.id,))
         conn.commit()
+
+    @classmethod
+    def get_by_id(cls, conn: sqlite3.Connection, category_id: int) -> Optional["Category"]:
+        """
+        指定されたIDのCategoryインスタンスをDBから取得する。
+
+        Parameters:
+            conn: SQLiteの接続オブジェクト
+            category_id: 取得したいカテゴリID
+
+        Returns:
+            Categoryインスタンス または None（該当がない場合）
+        """
+        cur = conn.cursor()
+        cur.execute(f'''
+            SELECT id, name, description, parent_id, type_code, sort_order, created_at, updated_at
+            FROM {cls.table_name()} WHERE id=?
+        ''', (category_id,))
+        row = cur.fetchone()
+
+        if row:
+            cat = cls.__new__(cls)
+            (cat.id, cat.name, cat.description, cat.parent_id, cat.type_code,
+            cat.sort_order, cat.created_at, cat.updated_at) = row
+            return cat
+        else:
+            return None
     
     def to_retriever_category(self) -> retriever_utils.RetrieverCategory:
         """
@@ -183,7 +148,7 @@ class Category(DBObject):
         if self.type_code == "hier":
             return retriever_utils.HierarchicalRetrieverCategory(
                 tagname=self.name,
-                parent_tag=self.parent_tag or "root"
+                parent_id=self.parent_id or None
             )
         elif self.type_code == "flat":
             return retriever_utils.FlatRetrieverCategory(
@@ -191,6 +156,143 @@ class Category(DBObject):
             )
         else:
             raise ValueError(f"不明な type_code: {self.type_code}")
+
+@dataclass(init=False)
+class Paragraph(DBObject):
+    id: Optional[int] = None
+    document_id: int = None
+    parent_id: int = None
+    category_id: Optional[int] = None
+    order: int = None
+    depth: int = None
+    name: Optional[str] = None
+    body: str = None
+    description: Optional[str] = None
+    vectorstore_path: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    def __init__(
+        self,
+        document_id: int,
+        parent_id: Optional[int],
+        category_id: Optional[int],
+        order: int,
+        depth: int,
+        name: Optional[str],
+        body: str,
+        description: Optional[str] = None,
+        vectorstore_path: Optional[str] = None,
+        dbcon: Optional[sqlite3.Connection] = None,
+        insert: bool = True,
+    ):
+        self.id = None
+        self.document_id = document_id
+        self.parent_id = parent_id
+        self.category_id = category_id
+        self.order = order
+        self.depth = depth
+        self.name = name
+        self.body = body
+        self.description = description
+        self.vectorstore_path = str(Path(vectorstore_path)) if vectorstore_path else None
+        self.created_at = None
+        self.updated_at = None
+
+        if insert:
+            if dbcon is None:
+                raise ValueError("insert=True の場合、dbcon を指定してください。")
+            self.insert(dbcon)
+
+    @classmethod
+    def table_name(cls) -> str:
+        return "paragraphs"
+
+    @classmethod
+    def from_row(cls, row: tuple) -> 'Paragraph':
+        return cls(*row)
+
+    def insert(self, conn: sqlite3.Connection) -> int:
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO paragraphs (document_id, parent_id, category_id, "order", depth, name, body, description,
+                                     vectorstore_path, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        ''', (self.document_id, self.parent_id, self.category_id, self.order, self.depth,
+              self.name, self.body, self.description, self.vectorstore_path))
+        conn.commit()
+        self.id = cur.lastrowid
+        return self.id
+
+    def update(self, conn: sqlite3.Connection):
+        cur = conn.cursor()
+        cur.execute('''
+            UPDATE paragraphs SET document_id=?, parent_id=?, category_id=?, "order"=?, depth=?, name=?, body=?,
+            description=?, vectorstore_path=?, updated_at=datetime('now') WHERE id=?
+        ''', (self.document_id, self.parent_id, self.category_id, self.order, self.depth,
+              self.name, self.body, self.description, self.vectorstore_path, self.id))
+        conn.commit()
+
+    def delete(self, conn: sqlite3.Connection):
+        cur = conn.cursor()
+        cur.execute('DELETE FROM paragraphs WHERE id=?', (self.id,))
+        conn.commit()
+
+    def vectorization(
+        self,
+        conn,
+        embedding_name: str = "",
+        overwrite: bool = False,
+    ):
+        if overwrite or not self.vectorstore_path or not os.path.exists(self.vectorstore_path):
+            from retriever_utils import FlatRetrieverCategory
+            from vectorization import save_chain_from_text
+            cat = Category.get_by_id(conn, self.category_id)
+            ret = FlatRetrieverCategory(tagname=cat.name)
+            
+            success = save_chain_from_text(
+                text = self.body,
+                vect_path=self.vectorstore_path,
+                embedding_name=embedding_name,
+                category = ret
+            )
+            return success
+
+    @classmethod
+    def insert_all(cls, conn: sqlite3.Connection, paragraphs: list["Paragraph"]) -> None:
+        print("Paragraph を挿入します")
+        for p in paragraphs:
+            p.insert(conn)
+
+def create_categories_from_paragraph_tree(
+    tree: list[dict],
+    dbcon: sqlite3.Connection,
+    parent_id: str = None,
+    type_code: str = "hier"
+) -> list[Category]:
+    """
+    Paragraph構造に基づきCategoryを自動生成してDBに挿入。
+    """
+    categories = []
+
+    def _recurse(subtree: list[dict], parent_id: int):
+        for order, node in enumerate(subtree):
+            cat = Category(
+                name=node["name"],
+                description=node["body"][:200] if node["body"] else None,
+                parent_id=parent_id,
+                type_code=type_code,
+                sort_order=order,
+                dbcon=dbcon,
+                insert=True
+            )
+            categories.append(cat)
+
+            # 子ノードを再帰的に処理
+            _recurse(node["children"], parent_id=cat.name)
+
+    _recurse(tree, parent_id=parent_id)
+    return categories
 
 @dataclass(init=False)
 class Document(DBObject):
@@ -206,6 +308,7 @@ class Document(DBObject):
     status: str = "active"
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    paragraphs: Optional[list[Paragraph]] = field(default_factory=list)
 
     def __init__(
         self,
@@ -227,7 +330,7 @@ class Document(DBObject):
         self.description = description
         self.file_path = str(Path(file_path))
         self.file_type = document_utils.get_document_type(self.file_path)
-        self.vectorstore_path = vectorstore_path
+        self.vectorstore_path = str(Path(vectorstore_path))
         self.embedding_model = embedding_model
         self.status = status
         self.created_at = None
@@ -237,6 +340,7 @@ class Document(DBObject):
             if dbcon is None:
                 raise ValueError("insert=True の場合、dbcon を指定する必要があります。")
             self.insert(dbcon)
+            self.init_paragraphs(dbcon)
 
     @classmethod
     def table_name(cls) -> str:
@@ -246,33 +350,45 @@ class Document(DBObject):
     def from_row(cls, row: Tuple[Any]) -> 'Document':
         return cls(*row)
 
-    def _init_paragraph(
-            self,
-            name: Optional[str] = None,
-            description: Optional[str] = None,
-            file_path: Optional[Path] = None,
-            dbcon: Optional[sqlite3.Connection] = None,
-            insert: bool = True
-        ) -> 'Paragraph':
-            if self.id is None:
-                raise ValueError("Paragraph を作成する前に Document を DB に保存してください（id が必要です）")
+    def init_paragraphs(self, conn) -> None:
+        """
+        ツリー構造に従って Paragraph インスタンスを生成し、self.paragraphs に格納する。
+        :param tree: build_nested_structure で得られた dict 構造のリスト
+        :param category_id: 各パラグラフに共通で割り当てるカテゴリID（任意）
+        """
+        self.paragraphs = []
 
-            para = Paragraph(
-                document_id=self.id,
-                project_id=self.project_id,
-                category_id=self.category_id,
-                name=name or self.name,
-                description=description or self.description,
-                file_path=file_path or Path(self.file_path),
-                vectorstore_path=self.vectorstore_path,
-                embedding_model=self.embedding_model,
-                status=self.status,
-                dbcon=dbcon,
-                insert=insert
-            )
+        tree = document_utils.build_nested_structure(self.file_path, max_depth=6)
 
-            self.paragraphs.append(para)
-            return para
+        def _recurse(subtree: list[dict], parent: Optional[Paragraph] = None):
+            for node in subtree:
+                cat = Category(
+                    name=node["name"],
+                    description=node["body"][:200] if node["body"] else node["name"],
+                    parent_id=parent.category_id if parent else self.category_id,
+                    type_code ="hier",
+                    dbcon=conn,
+                    insert=True
+                )
+
+                vectorstore_path = Path(self.vectorstore_path) / cat.name+".faiss"
+                para = Paragraph(
+                    document_id=self.id,
+                    parent_id = parent.id if parent else self.category_id,
+                    category_id=cat.id,
+                    vectorstore_path=str(vectorstore_path),
+                    order=node["order"],
+                    depth=node["depth"],
+                    name=node["name"],
+                    body=node["body"],
+                    dbcon=conn,
+                    insert=True
+                )
+                para.vectorization(conn, embedding_name=self.embedding_model)
+                self.paragraphs.append(para)
+                _recurse(node["children"], parent=para)
+
+        _recurse(tree)
 
     def insert(self, conn: sqlite3.Connection) -> int:
         cur = conn.cursor()
@@ -302,84 +418,98 @@ class Document(DBObject):
         conn.commit()
 
 @dataclass(init=False)
-class Paragraph(DBObject):
+class Project(DBObject):
     id: Optional[int] = None
-    project_id: int = 0
-    category_id: Optional[int] = None
-    name: Optional[str] = None
+    name: str = ""
     description: Optional[str] = None
-    file_path: Path = None
-    file_type: str = None
-    vectorstore_path: Optional[str] = None
-    embedding_model: Optional[str] = None
-    status: str = "active"
+    author: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    status: str = "active"
+    default_model_name: str = ""
+    default_prompt_name: str = "japanese_concise"
+    default_embedding_name: str = "nomic-embed-text:latest"
+    notes: Optional[str] = None
+    rag_session: RAGSession = None
 
     def __init__(
         self,
-        project_id: int,
-        category_id: Optional[int] = None,
-        name: Optional[str] = None,
+        name: str,
         description: Optional[str] = None,
-        file_path: Path = "",
-        vectorstore_path: Optional[Path] = None,
-        embedding_model: Optional[str] = None,
+        author: Optional[str] = None,
         status: str = "active",
+        default_model_name: str = "gemma3:4b",
+        default_prompt_name: str = "japanese_concise",
+        default_embedding_name: str = "nomic-embed-text:latest",
+        notes: Optional[str] = None,
         dbcon: Optional[sqlite3.Connection] = None,
         insert: bool = True,
     ):
         self.id = None
-        self.project_id = project_id
-        self.category_id = category_id
-        self.name = name
+        self.name =name
         self.description = description
-        self.file_path = str(Path(file_path))
-        self.file_type = document_utils.get_document_type(self.file_path)
-        self.vectorstore_path = vectorstore_path
-        self.embedding_model = embedding_model
+        self.author = author
         self.status = status
+        self.default_model = default_model_name
+        self.default_prompt = default_prompt_name
+        self.default_embedding = default_embedding_name
+        self.notes = notes
         self.created_at = None
         self.updated_at = None
+        self.rag_session = RAGSession(
+            model_name="gemma3:4b",
+            default_template="japanese_concise",
+            embedding_name="bge-m3"
+        )
 
         if insert:
             if dbcon is None:
                 raise ValueError("insert=True の場合、dbcon を指定する必要があります。")
             self.insert(dbcon)
-
+    
     @classmethod
     def table_name(cls) -> str:
-        return "paragraphs"
+        return "projects"
 
     @classmethod
-    def from_row(cls, row: Tuple[Any]) -> 'Paragraph':
+    def from_row(cls, row: Tuple[Any]) -> 'Project':
         return cls(*row)
 
     def insert(self, conn: sqlite3.Connection) -> int:
         cur = conn.cursor()
         cur.execute('''
-            INSERT INTO paragraphs (project_id, category_id, name, description, file_path, file_type, vectorstore_path,
-            embedding_model, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-        ''', (self.project_id, self.category_id, self.name, self.description, self.file_path, self.file_type,
-              self.vectorstore_path, self.embedding_model, self.status))
+            INSERT INTO projects (name, description, author, created_at, updated_at, status,
+                                default_model, default_prompt, default_embedding, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            self.name,
+            self.description,
+            self.author,
+            datetime.now().isoformat(),  # または time.strftime("%Y-%m-%d %H:%M:%S")
+            datetime.now().isoformat(),
+            self.status,
+            self.default_model_name,
+            self.default_prompt_name,
+            self.default_embedding_name,
+            self.notes
+        ))
         conn.commit()
         self.id = cur.lastrowid
         return self.id
 
+
     def update(self, conn: sqlite3.Connection):
         cur = conn.cursor()
         cur.execute('''
-            UPDATE paragraphs SET project_id=?, category_id=?, name=?, description=?, file_path=?, file_type=?,
-            vectorstore_path=?, embedding_model=?, status=?, updated_at=datetime('now')
-            WHERE id=?
-        ''', (self.project_id, self.category_id, self.name, self.description, self.file_path, self.file_type,
-              self.vectorstore_path, self.embedding_model, self.status, self.id))
+            UPDATE projects SET name=?, description=?, author=?, updated_at=datetime('now'),
+            status=?, default_model=?, default_prompt=?, default_embedding=?, notes=? WHERE id=?
+        ''', (self.name, self.description, self.author, self.status,
+              self.default_model, self.default_prompt, self.default_embedding, self.notes, self.id))
         conn.commit()
 
     def delete(self, conn: sqlite3.Connection):
         cur = conn.cursor()
-        cur.execute('DELETE FROM paragraphs WHERE id=?', (self.id,))
+        cur.execute('DELETE FROM projects WHERE id=?', (self.id,))
         conn.commit()
 
 # === DB接続ヘルパー ===
@@ -415,17 +545,17 @@ def get_category_list(conn: sqlite3.Connection) -> list[dict]:
 
 def get_category_selector(
     conn: sqlite3.Connection,
-    parent_tag: Optional[str] = None
+    parent_id: Optional[int] = None
 ) -> dict[str, str]:
     """
     指定された親タグに属するカテゴリの {name: description} 辞書を返す。
-    parent_tag=None のときは全件返す。
+    parent_id=None のときは全件返す。
     """
     categories = get_category_list(conn)  # ← dictのlistを取得
 
     result = {}
     for cat in categories:
-        if parent_tag is None or cat["parent_tag"] == parent_tag:
+        if parent_id is None or cat["parent_id"] == parent_id:
             name = cat["name"]
             desc = cat.get("description") or cat["name"]
             result[name] = desc
@@ -451,72 +581,93 @@ def init_db(db_path: str, overwrite: bool = False):
 
     # --- プロジェクトテーブル ---
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS projects (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        description TEXT,
-        author TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        status TEXT DEFAULT 'active',
-        default_prompt TEXT DEFAULT 'japanese_concise',
-        default_embedding TEXT DEFAULT 'nomic-embed-text:latest',
-        notes TEXT
-    );
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT,
+            author TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            status TEXT DEFAULT 'active',
+            default_model TEXT,
+            default_prompt TEXT,
+            default_embedding TEXT ,
+            notes TEXT
+        );
     """)
 
     cur.execute("""
-    CREATE TRIGGER IF NOT EXISTS update_project_timestamp
-    AFTER UPDATE ON projects
-    FOR EACH ROW
-    BEGIN
-        UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
-    END;
+        CREATE TRIGGER IF NOT EXISTS update_project_timestamp
+        AFTER UPDATE ON projects
+        FOR EACH ROW
+        BEGIN
+            UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+        END;
     """)
 
     # --- カテゴリテーブル ---
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS category_types (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        type_code TEXT UNIQUE NOT NULL,
-        type_name TEXT NOT NULL,
-        description TEXT
-    );
+        CREATE TABLE IF NOT EXISTS category_types (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type_code TEXT UNIQUE NOT NULL,
+            type_name TEXT NOT NULL,
+            description TEXT
+        );
     """)
 
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS categories (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL,
-        description TEXT,
-        parent_tag TEXT DEFAULT 'root',
-        type_code TEXT NOT NULL DEFAULT 'hier',
-        sort_order INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (parent_tag) REFERENCES categories(name) ON DELETE SET DEFAULT ON UPDATE CASCADE,
-        FOREIGN KEY (type_code) REFERENCES category_types(type_code) ON DELETE RESTRICT ON UPDATE CASCADE
-    );
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            description TEXT,
+            parent_id INTEGER,
+            type_code TEXT NOT NULL DEFAULT 'hier',
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (parent_id) REFERENCES categories(name) ON DELETE SET DEFAULT ON UPDATE CASCADE,
+            FOREIGN KEY (type_code) REFERENCES category_types(type_code) ON DELETE RESTRICT ON UPDATE CASCADE
+        );
     """)
 
     # --- 文書テーブル ---
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS documents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id INTEGER NOT NULL,
-        category_id INTEGER,
-        name TEXT,
-        description TEXT,
-        file_path TEXT NOT NULL,
-        file_type TEXT DEFAULT 'markdown',
-        vectorstore_path TEXT,
-        embedding_model TEXT,
-        status TEXT DEFAULT 'active',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE ON UPDATE CASCADE,
-        FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL ON UPDATE CASCADE
-    );
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            category_id INTEGER,
+            name TEXT,
+            description TEXT,
+            file_path TEXT NOT NULL,
+            file_type TEXT DEFAULT 'markdown',
+            vectorstore_path TEXT,
+            embedding_model TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE ON UPDATE CASCADE,
+            FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL ON UPDATE CASCADE
+        );
+    """)
+
+    # --- 段落テーブル ---
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS paragraphs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id INTEGER NOT NULL,
+            parent_id INTEGER,
+            category_id INTEGER,
+            "order" INTEGER,
+            depth INTEGER,
+            name TEXT,
+            body TEXT,
+            description TEXT,
+            vectorstore_path TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE ON UPDATE CASCADE,
+            FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL ON UPDATE CASCADE
+        );
     """)
 
     cur.execute("""

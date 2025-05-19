@@ -3,6 +3,10 @@
 import os
 import shutil
 import tempfile
+import re
+
+from typing import Optional, List, Any, Tuple
+
 
 from pathlib import Path
 from uuid import uuid4
@@ -83,7 +87,7 @@ class MarkdownSplitterStrategy(BaseSplitterStrategy):
             headers = [("##", "header2")]
 
         # 検出された見出しレベルに基づいて MarkdownHeaderTextSplitter を構築して返す
-        from langchain.text_splitter import MarkdownHeaderTextSplitter
+        from langchain.text_splitter import MarkdownHeaderTextSplitter # type: ignore
         return MarkdownHeaderTextSplitter(headers_to_split_on=headers)
 
 class PlainTextSplitterStrategy(BaseSplitterStrategy):
@@ -151,7 +155,7 @@ def get_document_type(file_path: Path) -> str | None:
 
     return DOCUMENT_TYPE.get(extension, None)
 
-def convert_document_to_markdown(doc_path: Path, md_path: str) -> str | None:
+def convert_document_to_markdown(doc_path: Path, md_path: Path) -> str | None:
     """
     DOCX や PDF などの入力ファイルを Markdown に変換して保存します。
 
@@ -200,7 +204,7 @@ def convert_document_to_markdown(doc_path: Path, md_path: str) -> str | None:
                 fp.write(md)
 
             print(f"✅ Markdown を保存しました: {md_path}")
-            return md_path
+            return Path(md_path)
 
     except Exception as e:
         print(f"ドキュメントの変換中にエラーが発生しました: {e}")
@@ -251,5 +255,68 @@ def load_documents(doc_path: str, loader_type: str = "markdown"):
         raise ValueError(f"Unsupported loader_type: {loader_type}")
 
     return loader.load()
+
+def build_nested_structure(md_path: str, max_depth: int = 6) -> list[dict[str, Any]]:
+    def split_markdown_nested(md_text: str, max_depth: int = 6) -> list:
+        heading_pattern = re.compile(r'^\s*(\#{2,6})\s+(.+)', re.MULTILINE)
+        matches = list(heading_pattern.finditer(md_text))
+
+        sections = []
+        order = 0
+
+        for i, match in enumerate(matches):
+            depth = len(match.group(1))
+            if depth > max_depth:
+                continue
+            title = match.group(2).strip()
+            start = match.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(md_text)
+
+            next_same_or_higher_depth_pos = None
+            for j in range(i + 1, len(matches)):
+                if len(matches[j].group(1)) <= depth:
+                    next_same_or_higher_depth_pos = matches[j].start()
+                    break
+            if next_same_or_higher_depth_pos:
+                end = next_same_or_higher_depth_pos
+
+            body = md_text[start:end].strip()
+            order += 1
+            sections.append({
+                "order": order,
+                "depth": depth,
+                "name": title,
+                "body": body
+            })
+
+        return sections
+
+    root = []
+    stack = []
+
+    md_text = Path(md_path).read_text(encoding="utf-8") 
+    sections = split_markdown_nested(md_text, max_depth=max_depth)
+
+    for section in sections:
+        node = {
+            "order": section["order"],
+            "depth": section["depth"],
+            "name": section["name"],
+            "body": section["body"],
+            "children": []
+        }
+
+        while stack and stack[-1]["depth"] >= node["depth"]:
+            stack.pop()
+
+        if not stack:
+            root.append(node)
+        else:
+            stack[-1]["children"].append(node)
+
+        stack.append(node)
+
+    return root
+
 
 

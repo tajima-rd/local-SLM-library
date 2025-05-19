@@ -6,9 +6,6 @@ import llm_config
 import retriever_utils
 import process_utils
 
-import json
-
-
 class RAGSession:
     class VectorStoreEntry:
         def __init__(self, file_path_str: str, category: retriever_utils.RetrieverCategory):
@@ -20,14 +17,12 @@ class RAGSession:
         
     def __init__(
         self,
-        vectorstore_dir: Path,
         model_name: str = "gemma3:4b",
         default_template: str = "japanese_concise",
         embedding_name: str = "bge-m3"
     ):
         self.model_name = model_name
         self.prompt_template = llm_config.load_prompt(default_template)
-        self.vectorstore_dir = vectorstore_dir
         self.embedding_name = embedding_name
         self.llm: BaseLanguageModel = llm_config.load_llm(model_name)
         self.qa_chain = None
@@ -47,7 +42,6 @@ class RAGSession:
             process_utils.process_and_vectorize_file(
                 in_file=entry.file_path,
                 markdown_dir=markdown_dir,
-                vectorstore_dir=self.vectorstore_dir,
                 category=entry.category,
                 embedding_name=self.embedding_name,
                 overwrite=overwrite
@@ -55,6 +49,7 @@ class RAGSession:
 
     def prepare_chain(
         self,
+        vectorstore_dir,
         category: retriever_utils.RetrieverCategory,
         k: int = 5
     ):
@@ -67,7 +62,7 @@ class RAGSession:
             self.qa_chain = chain_factory.prepare_chain_for_category(
                 llm=self.llm,
                 category=category,
-                base_path=self.vectorstore_dir,
+                base_path=vectorstore_dir,
                 chain_type="conversational",
                 prompt_template=self.prompt_template,
                 k=k,
@@ -78,7 +73,7 @@ class RAGSession:
             self.qa_chain = chain_factory.prepare_flat_chain(
                 llm=self.llm,
                 category=category,
-                base_path=self.vectorstore_dir,
+                base_path=vectorstore_dir,
                 prompt_template=self.prompt_template,
                 k=k,
             )
