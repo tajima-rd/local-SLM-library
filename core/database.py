@@ -259,6 +259,26 @@ class Paragraph(DBObject):
             return success
 
     @classmethod
+    def get_vectorstore_by_category_id(cls, conn: sqlite3.Connection, category_id: int) -> list[str]:
+        """
+        指定されたカテゴリIDに紐づく paragraphs テーブルの vectorstore_path を
+        重複なしですべて取得し、リスト形式で返す。
+        """
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT vectorstore_path
+            FROM paragraphs
+            WHERE category_id = ?
+            AND vectorstore_path IS NOT NULL
+            ORDER BY updated_at DESC
+        """, (category_id,))
+
+        rows = cur.fetchall()
+        result = [row[0] for row in rows if row[0]]
+        
+        return result if result else None
+    
+    @classmethod
     def insert_all(cls, conn: sqlite3.Connection, paragraphs: list["Paragraph"]) -> None:
         print("Paragraph を挿入します")
         for p in paragraphs:
@@ -303,7 +323,7 @@ class Document(DBObject):
     description: Optional[str] = None
     file_path: Path = None
     file_type: str = None
-    vectorstore_path: Optional[str] = None
+    vectorstore_dir: Optional[str] = None
     embedding_model: Optional[str] = None
     status: str = "active"
     created_at: Optional[str] = None
@@ -317,7 +337,7 @@ class Document(DBObject):
         name: Optional[str] = None,
         description: Optional[str] = None,
         file_path: Path = "",
-        vectorstore_path: Optional[Path] = None,
+        vectorstore_dir: Optional[Path] = None,
         embedding_model: Optional[str] = None,
         status: str = "active",
         dbcon: Optional[sqlite3.Connection] = None,
@@ -330,11 +350,17 @@ class Document(DBObject):
         self.description = description
         self.file_path = str(Path(file_path))
         self.file_type = document_utils.get_document_type(self.file_path)
-        self.vectorstore_path = str(Path(vectorstore_path))
+        self.vectorstore_dir = str(Path(vectorstore_dir))
         self.embedding_model = embedding_model
         self.status = status
         self.created_at = None
         self.updated_at = None
+        
+        if not os.path.exists(self.vectorstore_dir):
+            print(f"📂 作成対象: {self.vectorstore_dir}")
+            os.makedirs(self.vectorstore_dir, exist_ok=True)
+        else:
+            print(f"📁 既に存在: {self.vectorstore_dir}")
 
         if insert:
             if dbcon is None:
@@ -371,7 +397,7 @@ class Document(DBObject):
                     insert=True
                 )
 
-                vectorstore_path = Path(self.vectorstore_path) / cat.name+".faiss"
+                vectorstore_path = Path(self.vectorstore_dir) / (cat.name+".faiss")
                 para = Paragraph(
                     document_id=self.id,
                     parent_id = parent.id if parent else self.category_id,
@@ -393,11 +419,11 @@ class Document(DBObject):
     def insert(self, conn: sqlite3.Connection) -> int:
         cur = conn.cursor()
         cur.execute('''
-            INSERT INTO documents (project_id, category_id, name, description, file_path, file_type, vectorstore_path,
+            INSERT INTO documents (project_id, category_id, name, description, file_path, file_type, vectorstore_dir,
             embedding_model, status, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
         ''', (self.project_id, self.category_id, self.name, self.description, self.file_path, self.file_type,
-              self.vectorstore_path, self.embedding_model, self.status))
+              self.vectorstore_dir, self.embedding_model, self.status))
         conn.commit()
         self.id = cur.lastrowid
         return self.id
@@ -406,10 +432,10 @@ class Document(DBObject):
         cur = conn.cursor()
         cur.execute('''
             UPDATE documents SET project_id=?, category_id=?, name=?, description=?, file_path=?, file_type=?,
-            vectorstore_path=?, embedding_model=?, status=?, updated_at=datetime('now')
+            vectorstore_dir=?, embedding_model=?, status=?, updated_at=datetime('now')
             WHERE id=?
         ''', (self.project_id, self.category_id, self.name, self.description, self.file_path, self.file_type,
-              self.vectorstore_path, self.embedding_model, self.status, self.id))
+              self.vectorstore_dir, self.embedding_model, self.status, self.id))
         conn.commit()
 
     def delete(self, conn: sqlite3.Connection):
@@ -511,6 +537,17 @@ class Project(DBObject):
         cur = conn.cursor()
         cur.execute('DELETE FROM projects WHERE id=?', (self.id,))
         conn.commit()
+    
+    def start_chat(self, prompt: str) -> str:
+        if not self.rag_session:
+            raise ValueError("RAGSession is not initialized.")
+        
+        from ollama import chat  # グローバルollamaがあればそれを使ってもよい
+
+        return chat(
+            model=self.rag_session.model_name,
+            messages=[{"role": "user", "content": prompt}]
+        )["message"]["content"]
 
 # === DB接続ヘルパー ===
 def db_connect(db_path: str) -> sqlite3.Connection:
@@ -640,7 +677,7 @@ def init_db(db_path: str, overwrite: bool = False):
             description TEXT,
             file_path TEXT NOT NULL,
             file_type TEXT DEFAULT 'markdown',
-            vectorstore_path TEXT,
+            vectorstore_dir TEXT,
             embedding_model TEXT,
             status TEXT DEFAULT 'active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

@@ -17,32 +17,6 @@ class RetrieverCategory:
         raise NotImplementedError("to_dict() は具象カテゴリで実装してください。")
 
 @dataclass
-class HierarchicalRetrieverCategory(RetrieverCategory):
-    """
-    階層構造を持つRAGカテゴリ。
-    - tagname: このカテゴリの名前（ユニーク）
-    - parent_tag: 親カテゴリの名前（rootを既定値とする）
-    """
-    tagname: str
-    parent_tag: str = "root"
-
-    def to_dict(self) -> dict:
-        return {
-            "tagname": self.tagname,
-            "parent_tag": self.parent_tag
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "HierarchicalRetrieverCategory":
-        return cls(
-            tagname=data["tagname"],
-            parent_tag=data.get("parent_tag", "root")
-        )
-
-    def __str__(self) -> str:
-        return f"{self.parent_tag} → {self.tagname}"
-
-@dataclass
 class FlatRetrieverCategory(RetrieverCategory):
     """
     フラット（階層なし）な分類カテゴリ。

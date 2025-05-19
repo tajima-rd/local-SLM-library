@@ -2,6 +2,7 @@
 
 # 外部ライブラリから読み込んだモジュール類
 import json, re
+import sqlite3
 from typing import Optional
 
 def build_classification_response(
@@ -81,3 +82,45 @@ def classify_question_by_llm(question: str, selector: dict[str, str], llm_fn) ->
         return normalized
     except Exception as e:
         raise ValueError(f"LLMからの出力を解析できませんでした:\n{response}") from e
+
+def get_category_path(
+        question: str, 
+        conn: sqlite3.Connection, 
+        llm_fn
+) -> list[dict]:
+    """
+    質問に対してカテゴリツリーを上位からたどり、選ばれたカテゴリのパス（id含む）を返す。
+    """
+    from switch_rag_objects import classify_question_by_llm
+    from database import Category
+
+    all_categories = Category.get_all_categories(conn)
+
+    def find_children(parent_id: Optional[int]):
+        return [cat for cat in all_categories if cat["parent_id"] == parent_id]
+
+    path = []
+    current_parent_id = 0
+
+    while True:
+        current_level = find_children(current_parent_id)
+        if not current_level:
+            break
+
+        selector = {cat["name"]: cat.get("description") or "" for cat in current_level}
+        scores = classify_question_by_llm(question, selector, llm_fn)
+        selected_name = max(scores, key=scores.get)
+
+        selected_category = next((cat for cat in current_level if cat["name"] == selected_name), None)
+        if not selected_category:
+            break
+
+        path.append({
+            "id": selected_category["id"],
+            "name": selected_category["name"],
+            "description": selected_category.get("description"),
+            "parent_id": selected_category["parent_id"]
+        })
+        current_parent_id = selected_category["id"]
+
+    return path

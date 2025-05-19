@@ -17,9 +17,9 @@ class RAGSession:
         
     def __init__(
         self,
-        model_name: str = "gemma3:4b",
-        default_template: str = "japanese_concise",
-        embedding_name: str = "bge-m3"
+        model_name: str = None,
+        default_template: str = None,
+        embedding_name: str = None
     ):
         self.model_name = model_name
         self.prompt_template = llm_config.load_prompt(default_template)

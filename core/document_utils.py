@@ -27,6 +27,12 @@ from docling.document_converter import ( # type: ignore
     SimplePipeline
 )
 
+# 正規表現：第○章（空白対応・全角数字も対応）
+CHAPTER_PATTERN = re.compile(r"^##\s*第\s*[一二三四五六七八九十0-9０-９]+\s*章")
+
+# プレフィックスで階層をさらに下げるべきかを判定
+PREFIX_DOWN_PATTERN = re.compile(r"^(###)\s*([ア-ン一二三四五六七八九十0-9０-９]+)")
+
 FORMAT_MAP = {
     '.docx': InputFormat.DOCX,
     '.pptx': InputFormat.PPTX,
@@ -319,4 +325,42 @@ def build_nested_structure(md_path: str, max_depth: int = 6) -> list[dict[str, A
     return root
 
 
+def to_half_width_numbers(text: str) -> str:
+    return text.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+
+def is_chapter_heading(line: str) -> bool:
+    normalized = to_half_width_numbers(line)
+    return CHAPTER_PATTERN.match(normalized) is not None
+
+def should_indent_further(line: str) -> bool:
+    """カタカナ or 数字で始まるタイトルか？"""
+    return bool(PREFIX_DOWN_PATTERN.match(line))
+
+def collect_markdown_headings(md_path: Path) -> list[str]:
+    """
+    Markdownの'##'見出し行をすべて収集し、階層を調整：
+    - 最初の見出しはそのまま
+    - 「第○章」が含まれる場合は階層を戻して'##'
+    - 通常は'###'
+    - ただし、'###' で始まり、かつプレフィックスがカタカナ/数字なら '####'
+    """
+    with open(md_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    headings = [line.strip() for line in lines if line.strip().startswith("##")]
+
+    adjusted = []
+    for i, line in enumerate(headings):
+        if i == 0:
+            adjusted.append(line)  # 最初の見出しはそのまま
+        elif is_chapter_heading(line):
+            adjusted.append(re.sub(r"^##", "##", line, count=1))  # 章タイトルはそのまま
+        else:
+            if should_indent_further(line):  # カタカナ・数字なら1段下げ
+                new_line = re.sub(r"^##", "###", line, count=1)
+            else:  # 通常は2段下げ
+                new_line = re.sub(r"^##", "####", line, count=1)
+            adjusted.append(new_line)
+
+    return adjusted
 

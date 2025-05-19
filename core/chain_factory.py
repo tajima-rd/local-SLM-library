@@ -1,24 +1,45 @@
-# chain_factory.py
-
+# -----------------------------
+# 標準ライブラリ
+# -----------------------------
+import os
 import json
-import retriever_utils
-
+import shutil
+from uuid import uuid4
 from pathlib import Path
 from typing import Optional
 
-# LangChain core modules
-from langchain_core.prompts import PromptTemplate, ChatPromptTemplate # type: ignore
+# -----------------------------
+# LangChain ライブラリ群
+# -----------------------------
+# Core
+from langchain_core.prompts import PromptTemplate, ChatPromptTemplate  # type: ignore
 
-# LangChain chains
-from langchain.chains import ( # type: ignore
+# Chains
+from langchain.chains import (  # type: ignore
     create_history_aware_retriever,
-    create_retrieval_chain
-) 
-from langchain.chains.combine_documents.stuff import create_stuff_documents_chain # type: ignore
-from langchain.chains.llm import LLMChain # type: ignore
-from langchain.chains.combine_documents.map_reduce import MapReduceDocumentsChain # type: ignore
-from langchain.chains.combine_documents.reduce import ReduceDocumentsChain # type: ignore
-from langchain.chains.combine_documents.stuff import StuffDocumentsChain # type: ignore
+    create_retrieval_chain,
+)
+from langchain.chains.llm import LLMChain  # type: ignore
+from langchain.chains.combine_documents.stuff import StuffDocumentsChain, create_stuff_documents_chain  # type: ignore
+from langchain.chains.combine_documents.map_reduce import MapReduceDocumentsChain  # type: ignore
+from langchain.chains.combine_documents.reduce import ReduceDocumentsChain  # type: ignore
+
+# Embeddings & VectorStore
+from langchain_ollama import OllamaEmbeddings  # type: ignore
+from langchain_community.vectorstores import FAISS  # type: ignore
+from langchain.docstore.document import Document  # type: ignore
+
+# -----------------------------
+# 自作モジュール
+# -----------------------------
+import retriever_utils
+import document_utils as docutils
+
+from retriever_utils import (
+    edit_vectorstore_metadata,  # メタ編集関数
+    RetrieverCategory,          # 階層カテゴリ定義
+)
+
 
 SUPPORTED_CHAINS = ["conversational", "retrievalqa", "llmchain", "map_reduce", "refine", "stuff"]
 
@@ -190,53 +211,130 @@ def _build_map_reduce_chain(
         reduce_documents_chain=reduce_chain
     )
 
-def prepare_chain_for_category(
+def prepare_chain_from_path(
     llm,
-    category: retriever_utils.RetrieverCategory,
-    base_path: Path,
+    faiss_paths: list[Path],
     chain_type: str = "conversational",
     k: int = 5,
     prompt_template: Optional[PromptTemplate] = None,
 ):
     """
-    指定カテゴリに対応するベクトルストアを統合し、Retriever およびチェーンを構築する。
+    指定パス配下のすべての FAISS ベクトルストアを統合し、Retriever および RAG チェーンを構築する。
 
     Parameters:
     - llm: 言語モデル
-    - category: 対象カテゴリ名（metadata.json の "category" に対応）
-    - base_path: ベクトルストア群のベースディレクトリ
-    - chain_type: チェーンの種類（例: conversational）
+    - base_path: ベクトルストアのディレクトリ（.faiss を含むフォルダ群の親）
+    - chain_type: チェーンの種類（"conversational", "retrievalqa", など）
     - k: 検索数（Retriever用）
-    - prompt_template: プロンプトテンプレート（任意）
+    - prompt_template: combine_documents 用のプロンプト（任意）
 
     Returns:
     - LangChain チェーンオブジェクト
     """
-    all_faiss_paths = list(base_path.glob("**/*.faiss"))
-    vect_paths = []
+    if not faiss_paths:
+        raise FileNotFoundError(f"ベクトルストア（.faiss）が見つかりません")
 
-    for path in all_faiss_paths:
-        metadata_path = path / "metadata.json"
-        if not metadata_path.exists():
-            continue
-        with open(metadata_path) as f:
-            metadata = json.load(f)
-        if metadata.get("category", {}).get("tagname") == category.tagname:
-            vect_paths.append(str(path))
+    print(f"🔍 {len(faiss_paths)} 件のベクトルストアを統合します: {[str(p) for p in faiss_paths]}")
 
-    if not vect_paths:
-        raise FileNotFoundError(f"カテゴリ '{category}' に一致するベクトルストアが見つかりません: {base_path}")
-
-    print(f"🧩 カテゴリ '{category}' に一致するベクトルストア {len(vect_paths)} 件: {vect_paths}")
-    
-    # Retriever を構築
-    vectorstore = retriever_utils.merge_vectorstore(vect_paths)
+    vectorstore = retriever_utils.merge_vectorstore([str(p) for p in faiss_paths])
     retriever = retriever_utils.create_retriever(vectorstore, k=k)
 
     return get_chain(
         llm=llm,
         chain_type=chain_type,
         retriever=retriever,
-        prompt_template=prompt_template,
+        prompt_template= prompt_template,
         k=k,
     )
+
+
+def save_chain_from_markdown(
+    md_path: str,
+    vect_path: str,
+    embedding_name: str,
+    category: RetrieverCategory,
+    loader_type: str = "markdown",
+):
+    
+    # 埋め込みモデルの初期化
+    embeddings = OllamaEmbeddings(model=embedding_name)
+
+    documents = docutils.load_documents(md_path, loader_type)
+
+    print("テキストを分割してチャンクを割り当てます。")
+    splitter = docutils.suggest_text_splitter(
+        documents=documents,
+        loader_type=loader_type
+    )
+    split_docs = splitter.split_documents(documents)
+
+    for doc in split_docs:
+        doc.metadata["doc_id"] = str(uuid4())
+
+        existing_category = doc.metadata.get("category", {})
+        if not isinstance(existing_category, dict):
+            existing_category = {}
+
+        doc.metadata["category"] = category.to_dict()
+
+    vectorstore = FAISS.from_documents(split_docs, embeddings)
+    vectorstore.save_local(vect_path)
+
+    metadata = {
+        "embedding_model": embeddings.model,
+        "loader_type": loader_type,
+        "category": category.to_dict(),
+    }
+    with open(os.path.join(vect_path, "metadata.json"), "w", encoding="utf-8") as f:
+        json.dump(metadata, f)
+
+    return True
+
+def save_chain_from_text(
+    text: str,
+    vect_path: str,
+    embedding_name: str,
+    category: RetrieverCategory,
+    loader_type: str = "text",  # 明示しておくとよい
+) -> bool:
+    """
+    プレーンテキスト文字列からドキュメントを生成し、FAISS に保存する。
+    """
+
+    # 埋め込みモデルの初期化
+    embeddings = OllamaEmbeddings(model=embedding_name)
+
+    # Documentに変換（metadataはあとで付与）
+    document = Document(page_content=text, metadata={})
+    documents = [document]
+
+    print("テキストを分割してチャンクを割り当てます。")
+    splitter = docutils.suggest_text_splitter(
+        documents=documents,
+        loader_type=loader_type
+    )
+    split_docs = splitter.split_documents(documents)
+
+    for doc in split_docs:
+        doc.metadata["doc_id"] = str(uuid4())
+
+        existing_category = doc.metadata.get("category", {})
+        if not isinstance(existing_category, dict):
+            existing_category = {}
+
+        doc.metadata["category"] = category.to_dict()
+
+    # FAISS保存
+    vectorstore = FAISS.from_documents(split_docs, embeddings)
+    vectorstore.save_local(vect_path)
+
+    # メタデータの保存
+    metadata = {
+        "embedding_model": embeddings.model,
+        "loader_type": loader_type,
+        "category": category.to_dict(),
+    }
+    with open(os.path.join(vect_path, "metadata.json"), "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+    return True
