@@ -322,6 +322,15 @@ def build_nested_structure(md_path: str, max_depth: int = 6) -> list[dict[str, A
 
         stack.append(node)
 
+    # import json
+
+    # print(f"[DEBUG] セクション数: {len(sections)}")
+    # for i, sec in enumerate(sections):
+    #     print(f"  - {i+1}: depth={sec['depth']}, name='{sec['name']}', body_len={len(sec['body'])}")
+
+    # print(f"[DEBUG] ネスト構造ルート要素数: {len(root)}")
+    # print(json.dumps(root[:1], ensure_ascii=False, indent=2))  # 最初の1要素を構造確認
+
     return root
 
 

@@ -325,6 +325,9 @@ def save_chain_from_text(
         doc.metadata["category"] = category.to_dict()
 
     # FAISS保存
+    print(f"[DEBUG] チャンク数: {len(split_docs)}")
+    print(f"[DEBUG] 最初のチャンク: {split_docs[0].page_content if split_docs else 'なし'}")
+
     vectorstore = FAISS.from_documents(split_docs, embeddings)
     vectorstore.save_local(vect_path)
 

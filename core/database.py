@@ -168,6 +168,7 @@ class Paragraph(DBObject):
     name: Optional[str] = None
     body: str = None
     description: Optional[str] = None
+    language: Optional[str] = None
     vectorstore_path: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -182,6 +183,7 @@ class Paragraph(DBObject):
         name: Optional[str],
         body: str,
         description: Optional[str] = None,
+        language: Optional[str] = None,
         vectorstore_path: Optional[str] = None,
         dbcon: Optional[sqlite3.Connection] = None,
         insert: bool = True,
@@ -195,6 +197,7 @@ class Paragraph(DBObject):
         self.name = name
         self.body = body
         self.description = description
+        self.language = language
         self.vectorstore_path = str(Path(vectorstore_path)) if vectorstore_path else None
         self.created_at = None
         self.updated_at = None
@@ -211,15 +214,27 @@ class Paragraph(DBObject):
     @classmethod
     def from_row(cls, row: tuple) -> 'Paragraph':
         return cls(*row)
+    
+    @classmethod
+    def get_languages_by_category_id(cls, conn: sqlite3.Connection, category_id: int) -> list[str]:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT language
+            FROM paragraphs
+            WHERE category_id = ?
+            AND language IS NOT NULL
+        """, (category_id,))
+        rows = cur.fetchall()
+        return [row[0] for row in rows if row[0]]
 
     def insert(self, conn: sqlite3.Connection) -> int:
         cur = conn.cursor()
         cur.execute('''
-            INSERT INTO paragraphs (document_id, parent_id, category_id, "order", depth, name, body, description,
+            INSERT INTO paragraphs (document_id, parent_id, category_id, "order", depth, name, body, description,language,
                                      vectorstore_path, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
         ''', (self.document_id, self.parent_id, self.category_id, self.order, self.depth,
-              self.name, self.body, self.description, self.vectorstore_path))
+              self.name, self.body, self.description, self.language, self.vectorstore_path))
         conn.commit()
         self.id = cur.lastrowid
         return self.id
@@ -228,9 +243,9 @@ class Paragraph(DBObject):
         cur = conn.cursor()
         cur.execute('''
             UPDATE paragraphs SET document_id=?, parent_id=?, category_id=?, "order"=?, depth=?, name=?, body=?,
-            description=?, vectorstore_path=?, updated_at=datetime('now') WHERE id=?
+            description=?, language=? vectorstore_path=?, updated_at=datetime('now') WHERE id=?
         ''', (self.document_id, self.parent_id, self.category_id, self.order, self.depth,
-              self.name, self.body, self.description, self.vectorstore_path, self.id))
+              self.name, self.body, self.description, self.language, self.vectorstore_path, self.id))
         conn.commit()
 
     def delete(self, conn: sqlite3.Connection):
@@ -246,7 +261,7 @@ class Paragraph(DBObject):
     ):
         if overwrite or not self.vectorstore_path or not os.path.exists(self.vectorstore_path):
             from retriever_utils import FlatRetrieverCategory
-            from vectorization import save_chain_from_text
+            from chain_factory import save_chain_from_text
             cat = Category.get_by_id(conn, self.category_id)
             ret = FlatRetrieverCategory(tagname=cat.name)
             
@@ -388,6 +403,14 @@ class Document(DBObject):
 
         def _recurse(subtree: list[dict], parent: Optional[Paragraph] = None):
             for node in subtree:
+                from langdetect import detect
+                body_text = node.get("body", "").strip()
+
+                if not body_text:
+                    print(f"⚠️ 空の本文をスキップ: name='{node.get('name', '未命名')}'")
+                    _recurse(node.get("children", []), parent=parent)
+                    continue  # または continue など文脈に応じて
+            
                 cat = Category(
                     name=node["name"],
                     description=node["body"][:200] if node["body"] else node["name"],
@@ -407,6 +430,7 @@ class Document(DBObject):
                     depth=node["depth"],
                     name=node["name"],
                     body=node["body"],
+                    language = detect(body_text),
                     dbcon=conn,
                     insert=True
                 )
@@ -452,9 +476,9 @@ class Project(DBObject):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     status: str = "active"
-    default_model_name: str = ""
-    default_prompt_name: str = "japanese_concise"
-    default_embedding_name: str = "nomic-embed-text:latest"
+    default_model_name: str = None
+    default_prompt_name: str = None
+    default_embedding_name: str = None
     notes: Optional[str] = None
     rag_session: RAGSession = None
 
@@ -464,9 +488,9 @@ class Project(DBObject):
         description: Optional[str] = None,
         author: Optional[str] = None,
         status: str = "active",
-        default_model_name: str = "gemma3:4b",
-        default_prompt_name: str = "japanese_concise",
-        default_embedding_name: str = "nomic-embed-text:latest",
+        default_model_name: str = None,
+        default_prompt_name: str = None,
+        default_embedding_name: str = None,
         notes: Optional[str] = None,
         dbcon: Optional[sqlite3.Connection] = None,
         insert: bool = True,
@@ -482,10 +506,14 @@ class Project(DBObject):
         self.notes = notes
         self.created_at = None
         self.updated_at = None
+
+        if default_model_name and not self.is_model_available(default_model_name): # type: ignore
+            raise ValueError(f"指定されたモデル '{default_model_name}' は Ollama に存在しません。ollama run {default_model_name} で導入してください。")
+
         self.rag_session = RAGSession(
-            model_name="gemma3:4b",
-            default_template="japanese_concise",
-            embedding_name="bge-m3"
+            model_name=default_model_name,
+            default_template=default_prompt_name,
+            embedding_name=default_embedding_name
         )
 
         if insert:
@@ -496,6 +524,18 @@ class Project(DBObject):
     @classmethod
     def table_name(cls) -> str:
         return "projects"
+    
+    def is_model_available(self, model_name) -> bool:
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["ollama", "list"],
+                capture_output=True, text=True, check=True
+            )
+            return model_name in result.stdout
+        except Exception as e:
+            print(f"⚠️ モデル確認中にエラーが発生しました: {e}")
+            return False
 
     @classmethod
     def from_row(cls, row: Tuple[Any]) -> 'Project':
@@ -699,6 +739,7 @@ def init_db(db_path: str, overwrite: bool = False):
             name TEXT,
             body TEXT,
             description TEXT,
+            language TEXT,
             vectorstore_path TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

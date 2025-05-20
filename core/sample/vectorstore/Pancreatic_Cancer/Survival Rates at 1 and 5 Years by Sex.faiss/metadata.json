@@ -1,0 +1,7 @@
+{
+  "embedding_model": "bge-m3",
+  "loader_type": "text",
+  "category": {
+    "tagname": "Survival Rates at 1 and 5 Years by Sex"
+  }
+}
