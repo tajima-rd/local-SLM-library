@@ -1,10 +1,10 @@
 from pathlib import Path
 from langchain_core.language_models import BaseLanguageModel # type: ignore
 
-import chain_factory
-import llm_config
-import retriever_utils
-import process_utils
+from . import chain_factory
+from . import llm_config
+from . import retriever_utils
+from . import process_utils
 
 class RAGSession:
     class VectorStoreEntry:

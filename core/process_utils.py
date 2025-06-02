@@ -1,7 +1,7 @@
 from pathlib import Path
-from document_utils import convert_document_to_markdown
-from chain_factory import save_chain_from_markdown
-from retriever_utils import RetrieverCategory
+from .document_utils import convert_document_to_markdown
+from .chain_factory import save_chain_from_markdown
+from .retriever_utils import RetrieverCategory
 
 def process_and_vectorize_file(
     in_file: Path,

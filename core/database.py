@@ -5,9 +5,9 @@ from typing import Optional, List, Any, Tuple
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, asdict, field
 
-import document_utils
-import retriever_utils
-from rag_session import RAGSession # type: ignore
+from . import document_utils
+from . import retriever_utils
+from .rag_session import RAGSession # type: ignore # type: ignoreはそのまま残しておく
 
 # === 抽象クラス定義 ===
 
@@ -42,7 +42,9 @@ class Category(DBObject):
     id: Optional[int] = None
     name: str = ""
     description: Optional[str] = None
-    parent_id: str = None
+    # 修正: parent_id を削除し、parent_ids (リスト) を追加
+    # parent_id: str = None # この行を削除
+    parent_ids: List[int] = field(default_factory=list) # 新規追加
     type_code: str = "hier"
     sort_order: int = 0
     created_at: Optional[str] = None
@@ -52,7 +54,9 @@ class Category(DBObject):
         self,
         name: str,
         description: Optional[str] = None,
-        parent_id: str = None,
+        # 修正: parent_id パラメータを削除し、parent_ids パラメータを追加
+        # parent_id: str = None, # この行を削除
+        parent_ids: Optional[List[int]] = None, # 新規追加
         type_code: str = "hier",
         sort_order: int = 0,
         dbcon: Optional[sqlite3.Connection] = None,
@@ -61,7 +65,8 @@ class Category(DBObject):
         self.id = None
         self.name = name
         self.description = description
-        self.parent_id = parent_id
+        # 修正: parent_ids を初期化
+        self.parent_ids = parent_ids if parent_ids is not None else [] # 新規追加
         self.type_code = type_code
         self.sort_order = sort_order
         self.created_at = None
@@ -70,47 +75,123 @@ class Category(DBObject):
         if insert:
             if dbcon is None:
                 raise ValueError("insert=True の場合、dbcon を指定する必要があります。")
+            # insert メソッド自体が中間テーブルへの挿入も行う
             self.insert(dbcon)
 
     @classmethod
     def table_name(cls) -> str:
         return "categories"
     
-    @classmethod
     def from_row(cls, row: Tuple[Any]) -> 'Category':
-        return cls(*row)
+        # 既存のタプル構造にparent_idが含まれていない前提で調整
+        # from_row で使用するタプルの順序とカラムを再確認する必要がある
+        # DBからSELECT *した場合の順序に合わせて調整
+        # SELECT id, name, description, type_code, sort_order, created_at, updated_at
+        # 修正: parent_id をタプルから読み取らない
+        # 元: return cls(*row) # id, name, description, parent_id, type_code, sort_order, created_at, updated_at の順だったはず
+        # 新: id, name, description, type_code, sort_order, created_at, updated_at
+        if len(row) != 7: # id, name, description, type_code, sort_order, created_at, updated_at の7カラムを想定
+             raise ValueError(f"Expected 7 columns for Category.from_row, got {len(row)}")
+
+        cat = cls.__new__(cls) # __init__ をスキップ
+        cat.id = row[0]
+        cat.name = row[1]
+        cat.description = row[2]
+        cat.parent_ids = [] # from_row 時点では親情報はロードしない
+        cat.type_code = row[3]
+        cat.sort_order = row[4]
+        cat.created_at = row[5]
+        cat.updated_at = row[6]
+        return cat
     
     @classmethod
-    def get_all_categories(cls, conn: sqlite3.Connection) -> list[dict]:
+    def get_all_categories(cls, conn: sqlite3.Connection) -> list["Category"]:
         cur = conn.cursor()
+        # 親情報なしで基本のカテゴリ情報を取得
         cur.execute("""
-            SELECT id, name, description, parent_id, type_code, sort_order, created_at, updated_at
+            SELECT id, name, description, type_code, sort_order, created_at, updated_at
             FROM categories
         """)
-        rows = cur.fetchall()
-        keys = [col[0] for col in cur.description]
-        return [dict(zip(keys, row)) for row in rows]
+        category_rows = cur.fetchall()
+
+        # 中間テーブルから全ての親子関係を取得
+        cur.execute("""
+            SELECT child_category_id, parent_category_id
+            FROM category_parents
+        """)
+        parent_links = cur.fetchall()
+
+        # 親リンク情報を、子カテゴリIDをキーとする辞書に整理
+        parent_map = {}
+        for child_id, parent_id in parent_links:
+            if child_id not in parent_map:
+                parent_map[child_id] = []
+            parent_map[child_id].append(parent_id)
+
+        # Category オブジェクトを生成し、親リンク情報を設定
+        categories = []
+        for row in category_rows:
+            cat = cls.from_row(row) # 基本情報のみ設定 (parent_ids は [] で初期化されている)
+            if cat.id in parent_map:
+                cat.parent_ids = parent_map[cat.id] # 該当する親IDリストを設定
+            categories.append(cat)
+
+        return categories
 
     def insert(self, conn: sqlite3.Connection) -> int:
         cur = conn.cursor()
+        # categories テーブルへの挿入 (parent_id カラムなし)
         cur.execute('''
-            INSERT INTO categories (name, description, parent_id, type_code, sort_order, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-        ''', (self.name, self.description, self.parent_id, self.type_code, self.sort_order))
+            INSERT INTO categories (name, description, type_code, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+        ''', (self.name, self.description, self.type_code, self.sort_order))
+        
+        self.id = cur.lastrowid # 挿入されたカテゴリのIDを取得
+
+        # 中間テーブル category_parents への挿入
+        if self.parent_ids:
+            # 重複を避けるために set を使うか、または一括挿入
+            links_to_insert = [(self.id, parent_id) for parent_id in set(self.parent_ids) if parent_id is not None]
+            if links_to_insert:
+                 cur.executemany('''
+                     INSERT INTO category_parents (child_category_id, parent_category_id)
+                     VALUES (?, ?)
+                 ''', links_to_insert)
+
         conn.commit()
-        self.id = cur.lastrowid
         return self.id
 
     def update(self, conn: sqlite3.Connection):
+        if self.id is None:
+            raise ValueError("IDがないCategoryオブジェクトは更新できません。")
+
         cur = conn.cursor()
+        # categories テーブルの更新 (parent_id カラムなし)
         cur.execute('''
-            UPDATE categories SET name=?, description=?, parent_id=?, type_code=?, sort_order=?, updated_at=datetime('now')
+            UPDATE categories SET name=?, description=?, type_code=?, sort_order=?, updated_at=datetime('now')
             WHERE id=?
-        ''', (self.name, self.description, self.parent_id, self.type_code, self.sort_order, self.id))
+        ''', (self.name, self.description, self.type_code, self.sort_order, self.id))
+        
+        # 中間テーブル category_parents の更新
+        # 既存の親リンクを全て削除
+        cur.execute('DELETE FROM category_parents WHERE child_category_id=?', (self.id,))
+        
+        # 新しい親リンクを挿入
+        if self.parent_ids:
+            links_to_insert = [(self.id, parent_id) for parent_id in set(self.parent_ids) if parent_id is not None]
+            if links_to_insert:
+                cur.executemany('''
+                    INSERT INTO category_parents (child_category_id, parent_category_id)
+                    VALUES (?, ?)
+                ''', links_to_insert)
+
         conn.commit()
 
     def delete(self, conn: sqlite3.Connection):
+        if self.id is None:
+            raise ValueError("IDがないCategoryオブジェクトは削除できません。")
         cur = conn.cursor()
+        # categories テーブルから削除 -> 中間テーブルの対応するエントリは CASCADE で削除される
         cur.execute('DELETE FROM categories WHERE id=?', (self.id,))
         conn.commit()
 
@@ -127,16 +208,25 @@ class Category(DBObject):
             Categoryインスタンス または None（該当がない場合）
         """
         cur = conn.cursor()
+        # カテゴリ基本情報を取得
         cur.execute(f'''
-            SELECT id, name, description, parent_id, type_code, sort_order, created_at, updated_at
+            SELECT id, name, description, type_code, sort_order, created_at, updated_at
             FROM {cls.table_name()} WHERE id=?
         ''', (category_id,))
         row = cur.fetchone()
 
         if row:
-            cat = cls.__new__(cls)
-            (cat.id, cat.name, cat.description, cat.parent_id, cat.type_code,
-            cat.sort_order, cat.created_at, cat.updated_at) = row
+            cat = cls.from_row(row) # 基本情報でオブジェクトを作成
+            
+            # 中間テーブルから親IDリストを取得
+            cur.execute("""
+                SELECT parent_category_id
+                FROM category_parents
+                WHERE child_category_id = ?
+            """, (category_id,))
+            parent_rows = cur.fetchall()
+            cat.parent_ids = [p[0] for p in parent_rows] # 親IDリストを設定
+
             return cat
         else:
             return None
@@ -144,16 +234,52 @@ class Category(DBObject):
     def to_retriever_category(self) -> retriever_utils.RetrieverCategory:
         """
         Category オブジェクトを RAG 用の RetrieverCategory 型に変換する。
+        複数親の場合、現在の RetrieverCategory (特に HierarchicalRetrieverCategory) の設計と整合性を取る必要がある。
+        一時的な対応として、階層型で複数親がある場合はエラーとする。
         """
         if self.type_code == "hier":
+            if len(self.parent_ids) > 1:
+                 # 複数親をHierarchicalRetrieverCategoryにどうマッピングするかは設計次第
+                 # 一時的にエラーとするか、最初の親を選ぶか、フラットタグに倒すかなどを決める
+                 raise ValueError(f"階層型カテゴリ '{self.name}' (ID: {self.id}) が複数の親を持つため、RetrieverCategoryへの変換に失敗しました。Retriever側の設計を確認してください。")
+            # 親IDが0個または1個の場合は、既存のHierarchicalRetrieverCategoryの設計に合わせる
+            # parent_id フィールドが str を期待しているので、ID (int) を検索するなどして名前(str)に変換する必要がある
+            # 簡単のため、ここでは親ID (int) をそのまま parent_id (str) に渡す (retriever_utils側の修正が必要になる可能性あり)
+            # または、親の名前を取得するDBクエリをここに追加する
+            parent_name = None
+            if self.parent_ids:
+                # 親IDに対応する名前を取得するDBクエリを実行する必要がある
+                # 例: SELECT name FROM categories WHERE id = self.parent_ids[0]
+                # このメソッドがDBコネクションを知らないため、呼び出し元でIDを名前に変換するか、
+                # このメソッドに conn を渡すなどの対応が必要になる
+                # ここでは簡略化のため、parent_id を None とする (階層構造がRetrieverに伝わらない)
+                # TODO: 複数親のRetrieverCategoryへの適切なマッピングを実装する
+                pass # 親の名前取得ロジックは別途実装が必要
+
+            # 簡易対応として、階層型だが親情報をRetrieverに渡さないか、単一親の場合のみ渡す
+            # RetrieverCategoryのparent_idはOptional[str]なので、親ID(int)から親カテゴリ名(str)への変換が必要
+            parent_tagname = None
+            if len(self.parent_ids) == 1:
+                 # 単一親の場合のみ、その親のカテゴリ名を取得して渡す
+                 parent_cat = Category.get_by_id(conn=None, category_id=self.parent_ids[0]) # connが必要になる
+                 if parent_cat:
+                      parent_tagname = parent_cat.name
+                 else:
+                      print(f"⚠️ 親カテゴリID {self.parent_ids[0]} が見つかりません。")
+
             return retriever_utils.HierarchicalRetrieverCategory(
                 tagname=self.name,
-                parent_id=self.parent_id or None
+                parent_id=parent_tagname # 親カテゴリ名 (str) を渡す
             )
         elif self.type_code == "flat":
             return retriever_utils.FlatRetrieverCategory(
                 tagname=self.name
             )
+        elif self.type_code == "array":
+             # ArrayRetrieverCategory が retriever_utils に定義されているか確認
+             # もし定義されていればそれを使う
+             # 例: return retriever_utils.ArrayRetrieverCategory(tagname=self.name)
+             raise NotImplementedError("配列型カテゴリのRetrieverCategory変換は未実装です。")
         else:
             raise ValueError(f"不明な type_code: {self.type_code}")
 
@@ -683,6 +809,7 @@ def init_db(db_path: str, overwrite: bool = False):
     """)
 
     # --- カテゴリテーブル ---
+    # 修正: parent_id カラムを削除
     cur.execute("""
         CREATE TABLE IF NOT EXISTS category_types (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -697,22 +824,33 @@ def init_db(db_path: str, overwrite: bool = False):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
             description TEXT,
-            parent_id INTEGER,
+            -- parent_id INTEGER,  -- この行を削除
             type_code TEXT NOT NULL DEFAULT 'hier',
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (parent_id) REFERENCES categories(name) ON DELETE SET DEFAULT ON UPDATE CASCADE,
+            -- FOREIGN KEY (parent_id) REFERENCES categories(name) ON DELETE SET DEFAULT ON UPDATE CASCADE, -- この行を削除または修正が必要（元々name参照は非推奨）
             FOREIGN KEY (type_code) REFERENCES category_types(type_code) ON DELETE RESTRICT ON UPDATE CASCADE
         );
     """)
 
-    # --- 文書テーブル ---
+    # 新規追加: カテゴリ間の親子関係を管理する中間テーブル
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS category_parents (
+            child_category_id INTEGER NOT NULL,
+            parent_category_id INTEGER NOT NULL,
+            PRIMARY KEY (child_category_id, parent_category_id), -- 複合主キー
+            FOREIGN KEY (child_category_id) REFERENCES categories(id) ON DELETE CASCADE ON UPDATE CASCADE,
+            FOREIGN KEY (parent_category_id) REFERENCES categories(id) ON DELETE CASCADE ON UPDATE CASCADE
+        );
+    """)
+
+    # --- 文書テーブル --- (変更なし)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS documents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             project_id INTEGER NOT NULL,
-            category_id INTEGER,
+            category_id INTEGER, -- これは文書が属する単一のカテゴリを指すので変更なし
             name TEXT,
             description TEXT,
             file_path TEXT NOT NULL,
@@ -727,13 +865,14 @@ def init_db(db_path: str, overwrite: bool = False):
         );
     """)
 
-    # --- 段落テーブル ---
+    # --- 段落テーブル --- (変更なし)
+    # 注意: 段落の parent_id は段落自身の階層構造を指し、カテゴリの親とは異なる
     cur.execute("""
         CREATE TABLE IF NOT EXISTS paragraphs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             document_id INTEGER NOT NULL,
-            parent_id INTEGER,
-            category_id INTEGER,
+            parent_id INTEGER, -- これは段落の親を指すので変更なし
+            category_id INTEGER, -- これは段落が属する単一のカテゴリを指すので変更なし
             "order" INTEGER,
             depth INTEGER,
             name TEXT,
@@ -756,12 +895,14 @@ def init_db(db_path: str, overwrite: bool = False):
         UPDATE documents SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
     END;
     """)
+    
+    # 新規追加: category_parents テーブルの更新トリガーは不要 (複合主キーのため)
 
     init_tables(db_path)
 
     conn.commit()
     conn.close()
-    print("✅ データベース初期化が完了しました（projects, categories, documents）")
+    print("✅ データベース初期化が完了しました（projects, categories, category_parents, documents, paragraphs）")
 
 def init_tables(db_path="database.db"):
     conn = sqlite3.connect(db_path)

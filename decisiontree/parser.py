@@ -17,7 +17,7 @@ from pathlib import Path
 # Import all necessary model classes from model.py
 # Ensure model.py is accessible via sys.path or this is a relative import
 try:
-    from model import (
+    from .model import (
         Project,
         Parameter, Variable, TreeNode, DecisionNode,
         MarkovChain, MarkovState, ChanceNode, StateTransition,

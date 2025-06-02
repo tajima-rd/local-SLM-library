@@ -1,6 +1,6 @@
 from langchain_community.llms.ollama import Ollama as OllamaLLM # type: ignore
 from langchain_core.prompts import ChatPromptTemplate # type: ignore
-import prompts
+from . import prompts
 
 def load_llm(model_name: str = "gemma3:4b"):
     """

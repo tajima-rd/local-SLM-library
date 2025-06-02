@@ -32,10 +32,10 @@ from langchain.docstore.document import Document  # type: ignore
 # -----------------------------
 # 自作モジュール
 # -----------------------------
-import retriever_utils
-import document_utils as docutils
+from . import retriever_utils
+from . import document_utils as docutils
 
-from retriever_utils import (
+from .retriever_utils import (
     edit_vectorstore_metadata,  # メタ編集関数
     RetrieverCategory,          # 階層カテゴリ定義
 )

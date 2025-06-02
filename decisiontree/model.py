@@ -21,7 +21,7 @@ def _lazy_import_utils():
     if safe_eval is None: # Check if already imported
         try:
             # Use relative import if this is part of a package
-            from utils import safe_eval, complete_direct_state_transition_complement
+            from .utils import safe_eval, complete_direct_state_transition_complement
         except ImportError:
              # Fallback for standalone execution or testing, though might fail if utils aren't in path
              print("Warning: Could not import amua_utils. Safe eval and complement functions may not work.")
@@ -701,7 +701,6 @@ class Project:
 
         # If the loop completes without finding a match, return None explicitly
         return None # None を返り値に含めるため Optional を使用
-
 
     def display_parameters(self):
         """

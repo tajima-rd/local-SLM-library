@@ -1,7 +1,0 @@
-{
-  "embedding_model": "bge-m3",
-  "loader_type": "text",
-  "category": {
-    "tagname": "A Systematic Review of the Burden of Pancreatic Cancer in Europe: Real-World Impact on Survival, Quality of Life and Costs"
-  }
-}

@@ -26,7 +26,7 @@ def _lazy_import_models():
     if TreeNode is None: # Check if already imported
         try:
             # Use relative import if this is part of a package
-            from model import TreeNode, MarkovState, ChanceNode, StateTransition, MarkovChain
+            from .model import TreeNode, MarkovState, ChanceNode, StateTransition, MarkovChain
         except ImportError:
             # Fallback for standalone execution or testing
             print("Warning: Could not import amua_model in utils. Type hints and model-specific logic may fail.")

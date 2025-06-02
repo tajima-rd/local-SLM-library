@@ -1,7 +1,0 @@
-{
-  "embedding_model": "bge-m3",
-  "loader_type": "text",
-  "category": {
-    "tagname": "Incidence of Pancreatic Cancer"
-  }
-}
