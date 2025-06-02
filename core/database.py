@@ -42,8 +42,6 @@ class Category(DBObject):
     id: Optional[int] = None
     name: str = ""
     description: Optional[str] = None
-    # 修正: parent_id を削除し、parent_ids (リスト) を追加
-    # parent_id: str = None # この行を削除
     parent_ids: List[int] = field(default_factory=list) # 新規追加
     type_code: str = "hier"
     sort_order: int = 0
@@ -54,8 +52,6 @@ class Category(DBObject):
         self,
         name: str,
         description: Optional[str] = None,
-        # 修正: parent_id パラメータを削除し、parent_ids パラメータを追加
-        # parent_id: str = None, # この行を削除
         parent_ids: Optional[List[int]] = None, # 新規追加
         type_code: str = "hier",
         sort_order: int = 0,
@@ -65,7 +61,6 @@ class Category(DBObject):
         self.id = None
         self.name = name
         self.description = description
-        # 修正: parent_ids を初期化
         self.parent_ids = parent_ids if parent_ids is not None else [] # 新規追加
         self.type_code = type_code
         self.sort_order = sort_order

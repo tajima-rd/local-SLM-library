@@ -19,7 +19,7 @@ from core import database # type: ignore
 current_path = Path(__file__).resolve()
  
 # 'core' ディレクトリを含む親ディレクトリを見つける
-core_root = next(p for p in current_path.parents if p.name == "modules")
+core_root = next(p for p in current_path.parents if p.name == "local-SLM-library")
 
 # そこから目的のサブパスを定義
 sample_dir = core_root / "sample"
@@ -63,12 +63,12 @@ def tree_to_graphviz_dot(tree: list[dict], graph_name: str = "CategoryTree") -> 
     """
     lines = [f'digraph {graph_name} {{', '  node [shape=box];']
 
-    def add_node(node: dict, parent_id: Optional[int] = None):
+    def add_node(node: dict, parent_ids: Optional[int] = None):
         node_id = f'node{node["id"]}'
         label = f'{node["name"]}\\n{node["score"]:.2f}'
         lines.append(f'  {node_id} [label="{label}"];')
-        if parent_id is not None:
-            lines.append(f'  node{parent_id} -> {node_id};')
+        if parent_ids is not None:
+            lines.append(f'  node{parent_ids} -> {node_id};')
 
         for child in node.get("children", []):
             add_node(child, node["id"])
@@ -113,7 +113,6 @@ new_project = database.Project(
 cat_info = database.Category(
     name = "情報",
     description = "コンピューターに関連するカテゴリー",
-    parent_id = 0,
     type_code = "hier",
     sort_order = 0,
     dbcon=conn, 
@@ -123,7 +122,6 @@ cat_info = database.Category(
 cat_civil = database.Category(
     name = "土木",
     description = "建設、建築、土木工事、測量に関するカテゴリー",
-    parent_id = 0,
     type_code = "hier",
     sort_order = 0,
     dbcon=conn, 
@@ -133,7 +131,6 @@ cat_civil = database.Category(
 cat_medic = database.Category(
     name = "医療",
     description = "人の健康、病気、医療、看護、医薬品、医療機器に関するカテゴリー",
-    parent_id = 0,
     type_code = "hier",
     sort_order = 0,
     dbcon=conn, 
@@ -143,7 +140,6 @@ cat_medic = database.Category(
 cat_univ = database.Category(
     name = "大学",
     description = "大学の施設、教育、制度に関するカテゴリー",
-    parent_id = 0,
     type_code = "hier",
     sort_order = 0,
     dbcon=conn, 
@@ -153,7 +149,7 @@ cat_univ = database.Category(
 cat_std = database.Category(
     name = "学生",
     description = "大学生の学生生活に関するカテゴリー",
-    parent_id = cat_univ.id,
+    parent_ids = [cat_univ.id],
     type_code = "hier",
     sort_order = 0,
     dbcon=conn, 
@@ -218,7 +214,7 @@ rag_std = database.Document(
 )
 
 # カテゴリセレクタの取得（未使用なら削除可）
-selector = database.get_category_selector(conn, parent_id=None)
+selector = database.get_category_selector(conn, parent_ids=None)
 
 while True:
     question = input("今回はどのようなテーマの質問がありますか？：\n＞ ")

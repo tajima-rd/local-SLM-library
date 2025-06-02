@@ -274,7 +274,7 @@ if __name__ == "__main__":
     current_path = Path(__file__).resolve()
     
     # 'core' ディレクトリを含む親ディレクトリを見つける
-    core_root = next(p for p in current_path.parents if p.name == "modules")
+    core_root = next(p for p in current_path.parents if p.name == "local-SLM-library")
 
     # そこから目的のサブパスを定義
     sample_dir = core_root / "sample"
@@ -326,61 +326,137 @@ if __name__ == "__main__":
     )
 
     cat_stage = database.Category(
-    name = "ステージング",
-    description = "膵がんのステージングに関するカテゴリー",
-    parent_id = 0,
-    type_code = "hier",
-    sort_order = 0,
-    dbcon=conn, 
-    insert=True
-)
+        name = "ステージング",
+        description = "膵がんのステージングに関するカテゴリー",
+        type_code = "hier",
+        sort_order = 0,
+        dbcon=conn, 
+        insert=True
+    )
 
     cat_exam = database.Category(
         name = "検査結果",
         description = "膵がんのステージングにおける検査結果に関するカテゴリー",
-        parent_id = cat_stage.id,
+        parent_ids = [cat_stage.id],
         type_code = "hier",
         sort_order = 0,
         dbcon=conn, 
         insert=True
     )
 
-    cat_exam = database.Category(
+    cat_subj = database.Category(
         name = "自覚症状",
         description = "膵がんのステージングにおける自覚症状に関するカテゴリー",
-        parent_id = cat_stage.id,
+        parent_ids = [cat_stage.id],
         type_code = "hier",
         sort_order = 0,
         dbcon=conn, 
         insert=True
     )
 
-    cat_exam = database.Category(
+    cat_life = database.Category(
         name = "生活習慣",
         description = "膵がんのステージングにおける生活習慣に関するカテゴリー",
-        parent_id = cat_stage.id,
+        parent_ids = [cat_stage.id],
         type_code = "hier",
         sort_order = 0,
         dbcon=conn, 
         insert=True
     )
 
-    cat_exam = database.Category(
+    cat_medh = database.Category(
         name = "既往歴",
         description = "膵がんのステージングにおける既往歴に関するカテゴリー",
-        parent_id = cat_stage.id,
+        parent_ids = [cat_stage.id],
         type_code = "hier",
         sort_order = 0,
         dbcon=conn, 
         insert=True
     )
 
-    cat_exam = database.Category(
+    cat_famh = database.Category(
         name = "家族歴",
         description = "膵がんのステージングにおける家族歴に関するカテゴリー",
-        parent_id = cat_stage.id,
+        parent_ids = [cat_stage.id],
         type_code = "hier",
         sort_order = 0,
         dbcon=conn, 
+        insert=True
+    )
+
+        # Stage 0 のカテゴリを作成
+    cat_stage0 = database.Category(
+        name = "Stage 0",
+        description = "膵がん Stage 0 に関するカテゴリー",
+        parent_ids = [cat_stage.id], # 親カテゴリのIDをリストで指定
+        type_code = "hier",
+        sort_order = 1, # ステージ順に並べるためのソート順 (親が0なら子は1から始めるなど)
+        dbcon=conn, # DB接続オブジェクト
+        insert=True # 作成時にDBに挿入
+    )
+
+    # Stage IA のカテゴリを作成
+    cat_stage1a = database.Category(
+        name = "Stage IA",
+        description = "膵がん Stage IA に関するカテゴリー",
+        parent_ids = [cat_stage.id], # 親カテゴリのIDをリストで指定
+        type_code = "hier",
+        sort_order = 2, # ステージ順に並べるためのソート順
+        dbcon=conn,
+        insert=True
+    )
+
+    # Stage IB のカテゴリを作成
+    cat_stage1b = database.Category(
+        name = "Stage IB",
+        description = "膵がん Stage IB に関するカテゴリー",
+        parent_ids = [cat_stage.id], # 親カテゴリのIDをリストで指定
+        type_code = "hier",
+        sort_order = 3, # ステージ順に並べるためのソート順
+        dbcon=conn,
+        insert=True
+    )
+
+    # Stage IIA のカテゴリを作成
+    cat_stage2a = database.Category(
+        name = "Stage IIA",
+        description = "膵がん Stage IIA に関するカテゴリー",
+        parent_ids = [cat_stage.id], # 親カテゴリのIDをリストで指定
+        type_code = "hier",
+        sort_order = 4, # ステージ順に並べるためのソート順
+        dbcon=conn,
+        insert=True
+    )
+
+    # Stage IIB のカテゴリを作成
+    cat_stage2b = database.Category(
+        name = "Stage IIB",
+        description = "膵がん Stage IIB に関するカテゴリー",
+        parent_ids = [cat_stage.id], # 親カテゴリのIDをリストで指定
+        type_code = "hier",
+        sort_order = 5, # ステージ順に並べるためのソート順
+        dbcon=conn,
+        insert=True
+    )
+
+    # Stage III のカテゴリを作成
+    cat_stage3 = database.Category(
+        name = "Stage III",
+        description = "膵がん Stage III に関するカテゴリー",
+        parent_ids = [cat_stage.id], # 親カテゴリのIDをリストで指定
+        type_code = "hier",
+        sort_order = 6, # ステージ順に並べるためのソート順
+        dbcon=conn,
+        insert=True
+    )
+ 
+    # Stage IV のカテゴリを作成
+    cat_stage4 = database.Category(
+        name = "Stage IV",
+        description = "膵がん Stage IV に関するカテゴリー",
+        parent_ids = [cat_stage.id], # 親カテゴリのIDをリストで指定
+        type_code = "hier",
+        sort_order = 7, # ステージ順に並べるためのソート順
+        dbcon=conn,
         insert=True
     )
