@@ -1,0 +1,7 @@
+{
+  "embedding_model": "bge-m3",
+  "loader_type": "text",
+  "category": {
+    "tagname": "主要取扱製品"
+  }
+}
