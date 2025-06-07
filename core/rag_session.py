@@ -5,6 +5,7 @@ from . import chain_factory
 from . import llm_config
 from . import retriever_utils
 from . import process_utils
+from . import ingestion
 
 class RAGSession:
     class VectorStoreEntry:
@@ -26,6 +27,10 @@ class RAGSession:
         self.embedding_name = embedding_name
         self.llm: BaseLanguageModel = llm_config.load_llm(model_name)
         self.qa_chain = None
+
+        print(f"DEBUG RAGSession: Loaded prompt template string: {self.prompt_template}")
+        if self.prompt_template is None:
+            print("DEBUG RAGSession: Failed to load prompt template!")
 
     def build_vectorstore(
             self,

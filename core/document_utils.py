@@ -5,8 +5,10 @@ import shutil
 import tempfile
 import re
 
-from typing import Optional, List, Any, Tuple
+from typing import Optional, List, Any, Tuple, Dict
 
+import csv
+import json
 
 from pathlib import Path
 from uuid import uuid4
@@ -161,6 +163,70 @@ def get_document_type(file_path: Path) -> str | None:
 
     return DOCUMENT_TYPE.get(extension, None)
 
+def convert_csv_to_json(csv_file_path: str, json_file_path: str) -> Path:
+    """
+    指定されたCSVファイルを読み込み、ヘッダーを行のキーとして、
+    各行のデータを辞書形式のリストに変換し、指定されたJSONファイルに出力する。
+
+    :param csv_file_path: 読み込むCSVファイルのパス (文字列)
+    :param json_file_path: 出力するJSONファイルのパス (文字列)
+    :return: 出力されたJSONファイルの Path オブジェクト（絶対パス）
+    :raises FileNotFoundError: 入力CSVファイルが見つからない場合
+    :raises Exception: ファイル読み書き、CSV解析中にエラーが発生した場合
+    """
+    data: List[Dict[str, Any]] = []
+    csv_path = Path(csv_file_path)
+
+    # 入力ファイル存在チェック
+    if not csv_path.exists():
+        raise FileNotFoundError(f"入力CSVファイルが見つかりません: {csv_file_path}")
+
+    try:
+        # ファイルを読み込みモードで開く
+        # encoding='utf-8' を指定
+        # newline='' で改行コードの自動変換を防ぐ (CSV読み込みの標準的な推奨設定)
+        # errors='replace' でエンコーディングエラーが発生した場合に不正な文字を置き換える
+        with open(csv_path, mode='r', encoding='utf-8', newline='', errors='replace') as infile:
+            # csv.DictReader を使用すると、最初の行をヘッダーとして扱い、
+            # 各行をヘッダーをキーとする辞書として読み込んでくれる
+            reader = csv.DictReader(infile)
+
+            # 各行（辞書）をリストに追加
+            # DictReaderはヘッダーの数と異なる列を持つ行を自動的に調整しようとしますが、
+            # 不正なCSV形式の場合はエラーや予期しない結果になる可能性があります。
+            # 提供されたデータ例は末尾にコメント行があるようですが、それらは
+            # DictReaderによって無視されるか、例外が発生する可能性があります。
+            # JSON例に沿って、ヘッダーに一致する行のみを処理します。
+            for row in reader:
+                data.append(row)
+
+    except Exception as e:
+        # FileNotFoundError は上で捕捉済み
+        raise Exception(f"CSVファイルの読み込み中にエラーが発生しました: {e}") from e
+
+    # 出力ファイルのパスをPathオブジェクトに変換
+    json_path = Path(json_file_path)
+
+    # 出力ディレクトリが存在しない場合は作成
+    # parents=True: 途中のディレクトリもなければ作成
+    # exist_ok=True: ディレクトリが既に存在してもエラーにしない
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # JSONファイルを書き込みモードで開く
+        # encoding='utf-8' を指定
+        with open(json_path, mode='w', encoding='utf-8') as outfile:
+            # 辞書のリストをJSON形式で書き込む
+            # ensure_ascii=False で日本語文字列をエスケープせずにそのまま出力（可読性向上）
+            # indent=2 で整形して出力 (ネストレベルごとに2つのスペースでインデント)
+            json.dump(data, outfile, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        raise Exception(f"JSONファイルの書き込み中にエラーが発生しました: {e}") from e
+
+    # 出力したJSONファイルの Path オブジェクトを絶対パスに解決して返す
+    return json_path.resolve()
+
 def convert_document_to_markdown(doc_path: Path, md_path: Path) -> str | None:
     """
     DOCX や PDF などの入力ファイルを Markdown に変換して保存します。
@@ -214,6 +280,32 @@ def convert_document_to_markdown(doc_path: Path, md_path: Path) -> str | None:
 
     except Exception as e:
         print(f"ドキュメントの変換中にエラーが発生しました: {e}")
+        return None
+
+def convert_string_to_markdown(text_string: str, md_path: Path) -> Path | None:
+    """
+    文字列をMarkdownファイルとして指定されたパスに保存します。
+
+    Parameters:
+    - text_string: 保存する文字列
+    - md_path: 出力するMarkdownファイルのパス（Path型）
+
+    Returns:
+    - 成功時: md_path（Path型）、失敗時: None
+    """
+    try:
+        print(f"文字列を Markdown ファイルとして保存しています: {md_path}")
+        # 親ディレクトリが存在しない場合は作成
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(md_path, "w", encoding="utf-8") as fp:
+            fp.write(text_string)
+
+        print(f"✅ 文字列を保存しました: {md_path}")
+        return md_path
+
+    except Exception as e:
+        print(f"文字列の保存中にエラーが発生しました: {e}")
         return None
 
 def suggest_text_splitter(documents, loader_type: str = "markdown"):
@@ -332,7 +424,6 @@ def build_nested_structure(md_path: str, max_depth: int = 6) -> list[dict[str, A
     # print(json.dumps(root[:1], ensure_ascii=False, indent=2))  # 最初の1要素を構造確認
 
     return root
-
 
 def to_half_width_numbers(text: str) -> str:
     return text.translate(str.maketrans("０１２３４５６７８９", "0123456789"))

@@ -1,6 +1,6 @@
 from pathlib import Path
 from .document_utils import convert_document_to_markdown
-from .chain_factory import save_chain_from_markdown
+from .ingestion import save_markdown_to_vectorstore
 from .retriever_utils import RetrieverCategory
 
 def process_and_vectorize_file(
@@ -33,7 +33,7 @@ def process_and_vectorize_file(
     vect_path = vectorstore_dir / f"{md_path.stem}.faiss"
     print(f"📦 ベクトルストアを構築します: {md_path.name}")
 
-    return save_chain_from_markdown(
+    return save_markdown_to_vectorstore(
         md_path=md_path,
         vect_path=vect_path,
         category=category,

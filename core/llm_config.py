@@ -35,3 +35,6 @@ def load_prompt(name: str = "japanese_concise") -> ChatPromptTemplate:
         raise ValueError(f"未定義のプロンプト名です: '{name}'")
 
     return ChatPromptTemplate.from_template(template_map[name])
+
+
+
